@@ -1,9 +1,9 @@
-name: ArenaSpleef
+name: Spleef-OG
 main: org.battleplugins.arena.spleef.ArenaSpleef
 version: ${version}
 description: A Spleef mode for BattleArena.
 author: BattlePlugins
 website: https://battleplugins.org
-api-version: 1.19
+api-version: ${apiVersion}
 depend: [BattleArena]
 softdepend: [WorldEdit]

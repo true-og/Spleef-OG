@@ -10,20 +10,29 @@ import org.battleplugins.arena.spleef.arena.SpleefCompetition;
 import java.util.Map;
 
 public class PasteLayersAction extends EventAction {
+
     public PasteLayersAction(Map<String, String> params) {
+
         super(params);
+
     }
 
     @Override
     public void call(ArenaPlayer arenaPlayer, Resolvable resolvable) {
+
     }
 
     @Override
     public void postProcess(Arena arena, Competition<?> competition, Resolvable resolvable) {
+
         if (!(competition instanceof SpleefCompetition spleefCompetition)) {
+
             return;
+
         }
 
         spleefCompetition.pasteLayers();
+
     }
+
 }

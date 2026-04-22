@@ -15,11 +15,16 @@ public class SpleefConfig {
     private Map<String, ItemStack> shovels;
 
     public boolean shouldProjectilesBreakBlocks() {
+
         return this.projectilesBreakBlocks;
+
     }
 
     @Nullable
     public ItemStack getShovel(String name) {
+
         return this.shovels == null ? null : this.shovels.get(name).clone();
+
     }
+
 }

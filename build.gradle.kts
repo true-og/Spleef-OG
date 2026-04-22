@@ -1,72 +1,107 @@
+/* This is free and unencumbered software released into the public domain */
+
+/* ------------------------------ Plugins ------------------------------ */
 plugins {
     id("java")
     id("java-library")
-    id("xyz.jpenilla.run-paper") version "2.3.0"
-    id("com.modrinth.minotaur") version "2.+"
+    id("com.diffplug.spotless") version "8.1.0"
+    id("checkstyle")
+    eclipse
 }
 
+/* --------------------------- JDK toolchain --------------------------- */
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(17))
+        vendor.set(JvmVendorSpec.GRAAL_VM)
+    }
+}
+
+/* ----------------------------- Metadata ------------------------------ */
 group = "org.battleplugins.arena"
+
 version = "2.0.1-SNAPSHOT"
 
-val supportedVersions = listOf(
-    "1.19.4",
-    "1.20", "1.20.1", "1.20.2", "1.20.3", "1.20.4", "1.20.5", "1.20.6",
-    "1.21", "1.21.1", "1.21.2", "1.21.3", "1.21.4"
-)
+val apiVersion = "1.19"
 
-java.toolchain.languageVersion.set(JavaLanguageVersion.of(17))
+/* ----------------------------- Resources ----------------------------- */
+tasks.named<ProcessResources>("processResources") {
+    val props = mapOf("version" to version, "apiVersion" to apiVersion)
+    inputs.properties(props)
+    filesMatching("plugin.yml") { expand(props) }
+    from("LICENSE") { into("/") }
+}
 
+/* ------------------------------ Repos -------------------------------- */
 repositories {
     mavenCentral()
-
+    gradlePluginPortal()
     maven("https://repo.papermc.io/repository/maven-public/")
     maven("https://repo.battleplugins.org/releases/")
     maven("https://repo.battleplugins.org/snapshots/")
+    maven { url = uri("file://${System.getProperty("user.home")}/.m2/repository") }
+    System.getProperty("SELF_MAVEN_LOCAL_REPO")?.let {
+        val dir = file(it)
+        if (dir.isDirectory) {
+            println("Using SELF_MAVEN_LOCAL_REPO at: $it")
+            maven { url = uri("file://${dir.absolutePath}") }
+        } else {
+            logger.error("TrueOG Bootstrap not found, defaulting to ~/.m2 for mavenLocal()")
+            mavenLocal()
+        }
+    } ?: logger.error("TrueOG Bootstrap not found, defaulting to ~/.m2 for mavenLocal()")
 }
 
+/* ---------------------------- Dependencies --------------------------- */
 dependencies {
-    api("io.papermc.paper:paper-api:1.19.4-R0.1-SNAPSHOT")
-    api("org.battleplugins:arena:4.0.0-SNAPSHOT")
+    compileOnly("io.papermc.paper:paper-api:1.19.4-R0.1-SNAPSHOT")
+    compileOnly("org.battleplugins:arena:4.0.0-SNAPSHOT")
 }
 
-tasks {
-    runServer {
-        minecraftVersion("1.20.6")
+/* ---------------------- Reproducible jars ---------------------------- */
+tasks.withType<AbstractArchiveTask>().configureEach {
+    isPreserveFileTimestamps = false
+    isReproducibleFileOrder = true
+}
 
-        // Set Java 21 (1.20.6 requires Java 21)
-        javaLauncher = project.javaToolchains.launcherFor {
-            languageVersion = JavaLanguageVersion.of(21)
-        }
+/* ------------------------------- Jar --------------------------------- */
+tasks.jar {
+    archiveBaseName.set(rootProject.name)
+    archiveClassifier.set("")
+    archiveFileName.set("${rootProject.name}-${project.version}.jar")
+}
+
+tasks.build { dependsOn(tasks.spotlessApply) }
+
+/* --------------------------- Javac opts ------------------------------ */
+tasks.withType<JavaCompile>().configureEach {
+    options.compilerArgs.add("-parameters")
+    options.isFork = true
+    options.compilerArgs.add("-Xlint:deprecation")
+    options.encoding = "UTF-8"
+}
+
+/* --------------------------- Auto Formatting ------------------------- */
+spotless {
+    java {
+        eclipse().configFile("config/formatter/eclipse-java-formatter.xml")
+        leadingTabsToSpaces()
+        removeUnusedImports()
     }
-
-    jar {
-        from("src/main/java/resources") {
-            include("*")
-        }
-
-        archiveFileName.set("ArenaSpleef.jar")
-        archiveClassifier.set("")
-    }
-
-    processResources {
-        filesMatching("plugin.yml") {
-            expand("version" to rootProject.version)
-        }
+    kotlinGradle {
+        ktfmt().kotlinlangStyle().configure { it.setMaxWidth(120) }
+        target("build.gradle.kts", "settings.gradle.kts")
     }
 }
 
-modrinth {
-    val snapshot = "SNAPSHOT" in rootProject.version.toString()
-
-    token.set(System.getenv("MODRINTH_TOKEN") ?: "")
-    projectId.set("arenaspleef")
-    versionNumber.set(rootProject.version as String + if (snapshot) "-" + System.getenv("BUILD_NUMBER") else "")
-    versionType.set(if (snapshot) "beta" else "release")
-    changelog.set(System.getenv("CHANGELOG") ?: "")
-    uploadFile.set(tasks.jar)
-    gameVersions.set(supportedVersions)
-
-    dependencies {
-        required.project("battlearena")
-    }
+checkstyle {
+    toolVersion = "10.18.1"
+    configFile = file("config/checkstyle/checkstyle.xml")
+    isIgnoreFailures = true
+    isShowViolations = true
 }
+
+tasks.named("compileJava") { dependsOn("spotlessApply") }
+
+tasks.named("spotlessCheck") { dependsOn("spotlessApply") }
