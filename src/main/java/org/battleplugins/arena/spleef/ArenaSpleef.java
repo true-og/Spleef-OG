@@ -1,6 +1,8 @@
 package org.battleplugins.arena.spleef;
 
 import org.battleplugins.arena.BattleArena;
+import org.battleplugins.arena.competition.phase.CompetitionPhaseType;
+import org.battleplugins.arena.competition.phase.phases.CountdownPhase;
 import org.battleplugins.arena.config.ArenaConfigParser;
 import org.battleplugins.arena.config.ParseException;
 import org.battleplugins.arena.event.action.EventActionType;
@@ -24,6 +26,9 @@ public class ArenaSpleef extends JavaPlugin {
             GiveShovelAction.class, GiveShovelAction::new);
     public static EventActionType<PasteLayersAction> PASTE_LAYERS = EventActionType.create("paste-layers",
             PasteLayersAction.class, PasteLayersAction::new);
+
+    public static final CompetitionPhaseType<?, ? extends CountdownPhase<?>> WAITING_FOR_PLAYERS = CompetitionPhaseType
+            .create("waitingforplayers", CountdownPhase.class);
 
     private static ArenaSpleef instance;
 
