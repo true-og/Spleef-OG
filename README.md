@@ -42,6 +42,111 @@ For example configurations of these modes, see the [templates](./templates) fold
 | battlearena.command.spleef.layer.index  | /spleef layer index  |
 | battlearena.command.spleef.layer.list   | /spleef layer list   |
 
+## API
+Spleef-OG exposes a small Bukkit-native API for other plugins. No BattleArena types on the surface — only `org.bukkit.entity.Player`.
+
+### Check if a player is in a Spleef match
+Java:
+```java
+import org.battleplugins.arena.spleef.api.SpleefAPI;
+
+if (SpleefAPI.isInSpleef(player)) {
+    // ...
+}
+```
+
+Kotlin:
+```kotlin
+import org.battleplugins.arena.spleef.api.SpleefAPI
+
+if (SpleefAPI.isInSpleef(player)) {
+    // ...
+}
+```
+
+### Events
+Both extend `org.bukkit.event.player.PlayerEvent`.
+
+| Event              | Fires when                                | `SpleefAPI.isInSpleef(player)` during event |
+|--------------------|-------------------------------------------|---------------------------------------------|
+| `SpleefJoinEvent`  | Player joins any Spleef-mode competition  | `true`                                      |
+| `SpleefLeaveEvent` | Player leaves any Spleef-mode competition | `false`                                     |
+
+Covers every mode (Classic, Splegg, Decay, Bow Spleef). State flips before the event fires, so listeners observe the post-transition value.
+
+### Consumer setup (Gradle Kotlin DSL)
+```kotlin
+repositories {
+    maven("https://repo.papermc.io/repository/maven-public/")
+}
+
+dependencies {
+    compileOnly("io.papermc.paper:paper-api:1.19.4-R0.1-SNAPSHOT")
+    compileOnly(files("libs/Spleef-OG-<version>.jar"))
+}
+```
+
+`plugin.yml`:
+```yaml
+depend: [Spleef-OG]
+```
+
+### Listener examples
+Java:
+```java
+import org.battleplugins.arena.spleef.api.SpleefAPI;
+import org.battleplugins.arena.spleef.api.SpleefJoinEvent;
+import org.battleplugins.arena.spleef.api.SpleefLeaveEvent;
+import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.Listener;
+
+public class SpleefHooks implements Listener {
+
+    @EventHandler
+    public void onJoin(SpleefJoinEvent event) {
+
+        Player player = event.getPlayer();
+        // SpleefAPI.isInSpleef(player) == true
+
+    }
+
+    @EventHandler
+    public void onLeave(SpleefLeaveEvent event) {
+
+        Player player = event.getPlayer();
+        // SpleefAPI.isInSpleef(player) == false
+
+    }
+
+}
+```
+
+Kotlin:
+```kotlin
+import org.battleplugins.arena.spleef.api.SpleefAPI
+import org.battleplugins.arena.spleef.api.SpleefJoinEvent
+import org.battleplugins.arena.spleef.api.SpleefLeaveEvent
+import org.bukkit.event.EventHandler
+import org.bukkit.event.Listener
+
+class SpleefHooks : Listener {
+
+    @EventHandler
+    fun onJoin(event: SpleefJoinEvent) {
+        val player = event.player
+        // SpleefAPI.isInSpleef(player) == true
+    }
+
+    @EventHandler
+    fun onLeave(event: SpleefLeaveEvent) {
+        val player = event.player
+        // SpleefAPI.isInSpleef(player) == false
+    }
+
+}
+```
+
 ## Building
 ```
 ./gradlew build

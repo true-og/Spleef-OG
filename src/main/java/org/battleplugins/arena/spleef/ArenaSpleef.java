@@ -6,6 +6,7 @@ import org.battleplugins.arena.config.ParseException;
 import org.battleplugins.arena.event.action.EventActionType;
 import org.battleplugins.arena.spleef.action.GiveShovelAction;
 import org.battleplugins.arena.spleef.action.PasteLayersAction;
+import org.battleplugins.arena.spleef.api.SpleefApiListener;
 import org.battleplugins.arena.spleef.arena.SpleefArena;
 import org.bukkit.Bukkit;
 import org.bukkit.NamespacedKey;
@@ -62,6 +63,8 @@ public class ArenaSpleef extends JavaPlugin {
         }
 
         BattleArena.getInstance().registerArena(this, "Spleef", SpleefArena.class, SpleefArena::new);
+
+        this.getServer().getPluginManager().registerEvents(new SpleefApiListener(), this);
 
     }
 
