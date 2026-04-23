@@ -7,6 +7,7 @@ import org.battleplugins.arena.event.action.EventActionType;
 import org.battleplugins.arena.spleef.action.GiveShovelAction;
 import org.battleplugins.arena.spleef.action.PasteLayersAction;
 import org.battleplugins.arena.spleef.arena.SpleefArena;
+import org.bukkit.Bukkit;
 import org.bukkit.NamespacedKey;
 import org.bukkit.configuration.Configuration;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -61,6 +62,13 @@ public class ArenaSpleef extends JavaPlugin {
         }
 
         BattleArena.getInstance().registerArena(this, "Spleef", SpleefArena.class, SpleefArena::new);
+
+    }
+
+    @Override
+    public void onDisable() {
+
+        Bukkit.getScheduler().cancelTasks(this);
 
     }
 

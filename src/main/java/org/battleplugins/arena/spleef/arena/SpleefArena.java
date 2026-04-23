@@ -139,6 +139,15 @@ public class SpleefArena extends Arena {
     @ArenaEventHandler(priority = EventPriority.LOW)
     public void onMove(PlayerMoveEvent event, SpleefCompetition competition) {
 
+        if (event.getFrom().getBlockX() == event.getTo().getBlockX()
+                && event.getFrom().getBlockY() == event.getTo().getBlockY()
+                && event.getFrom().getBlockZ() == event.getTo().getBlockZ())
+        {
+
+            return; // Same block, skip hot-path work
+
+        }
+
         SpleefMap spleefMap = (SpleefMap) competition.getMap();
         if (spleefMap.getDeathRegion() != null && spleefMap.getDeathRegion().isInside(event.getTo())) {
 
@@ -198,13 +207,15 @@ public class SpleefArena extends Arena {
         }
 
         ItemMeta meta = item.getItemMeta();
-        if (meta.getPersistentDataContainer().has(ArenaSpleef.getInstance().getSpleefItemKey(),
+        if (!meta.getPersistentDataContainer().has(ArenaSpleef.getInstance().getSpleefItemKey(),
                 PersistentDataType.BOOLEAN))
         {
 
-            event.setCancelled(true);
+            return; // Not a spleef item, do not fire egg
 
         }
+
+        event.setCancelled(true);
 
         // Shoot an egg
         event.getPlayer().launchProjectile(Egg.class, null, egg -> {

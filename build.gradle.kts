@@ -37,6 +37,7 @@ tasks.named<ProcessResources>("processResources") {
 repositories {
     mavenCentral()
     gradlePluginPortal()
+    maven("https://maven.enginehub.org/repo/")
     maven("https://repo.papermc.io/repository/maven-public/")
     maven("https://repo.battleplugins.org/releases/")
     maven("https://repo.battleplugins.org/snapshots/")
@@ -57,6 +58,7 @@ repositories {
 dependencies {
     compileOnly("io.papermc.paper:paper-api:1.19.4-R0.1-SNAPSHOT")
     compileOnly("org.battleplugins:arena:4.0.0-SNAPSHOT")
+    compileOnly("com.sk89q.worldguard:worldguard-bukkit:7.0.9")
 }
 
 /* ---------------------- Reproducible jars ---------------------------- */

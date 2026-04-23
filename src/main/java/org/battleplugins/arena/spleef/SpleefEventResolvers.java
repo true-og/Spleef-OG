@@ -9,8 +9,11 @@ import org.battleplugins.arena.event.ArenaEventHandler;
 import org.battleplugins.arena.spleef.arena.SpleefArena;
 import org.battleplugins.arena.spleef.arena.SpleefCompetition;
 import org.battleplugins.arena.spleef.arena.SpleefGame;
+import org.battleplugins.arena.spleef.arena.SpleefMap;
+import org.bukkit.entity.AbstractArrow;
 import org.bukkit.entity.Egg;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.Projectile;
 import org.bukkit.event.block.TNTPrimeEvent;
 import org.bukkit.event.entity.ProjectileHitEvent;
 import org.bukkit.projectiles.ProjectileSource;
@@ -31,25 +34,14 @@ public final class SpleefEventResolvers {
 
     public static final Function<ProjectileHitEvent, LiveCompetition<?>> PROJECTILE_HIT = event -> {
 
-        if (!(event.getEntity() instanceof Egg egg)) {
-
-            return null;
-
-        }
-
         if (event.getHitBlock() == null) {
 
             return null;
 
         }
 
-        if (!egg.hasMetadata("splegg") && !ArenaSpleef.getInstance().getMainConfig().shouldProjectilesBreakBlocks()) {
-
-            return null;
-
-        }
-
-        ProjectileSource shooter = egg.getShooter();
+        Projectile projectile = event.getEntity();
+        ProjectileSource shooter = projectile.getShooter();
         if (!(shooter instanceof Player player)) {
 
             return null;
@@ -57,13 +49,45 @@ public final class SpleefEventResolvers {
         }
 
         ArenaPlayer arenaPlayer = ArenaPlayer.getArenaPlayer(player);
-        if (arenaPlayer == null || !(arenaPlayer.getArena() instanceof SpleefArena)) {
+        if (arenaPlayer == null || !(arenaPlayer.getArena() instanceof SpleefArena arena)) {
 
             return null;
 
         }
 
-        return arenaPlayer.getCompetition();
+        boolean breakBlocks = ArenaSpleef.getInstance().getMainConfig().shouldProjectilesBreakBlocks();
+
+        if (projectile instanceof Egg egg) {
+
+            if (egg.hasMetadata("splegg") || breakBlocks) {
+
+                return arenaPlayer.getCompetition();
+
+            }
+
+            return null;
+
+        }
+
+        if (projectile instanceof AbstractArrow) {
+
+            if (arena.getGame() == SpleefGame.BOW_SPLEEF || breakBlocks) {
+
+                return arenaPlayer.getCompetition();
+
+            }
+
+            return null;
+
+        }
+
+        if (breakBlocks) {
+
+            return arenaPlayer.getCompetition();
+
+        }
+
+        return null;
 
     };
 
@@ -101,6 +125,12 @@ public final class SpleefEventResolvers {
 
         }
 
+        if (!WorldGuardSupport.isEnabled()) {
+
+            return null;
+
+        }
+
         List<Competition<?>> competitions = BattleArena.getInstance().getCompetitions(arena);
         for (Competition<?> competition : competitions) {
 
@@ -116,9 +146,15 @@ public final class SpleefEventResolvers {
 
             }
 
-            if (spleefCompetition.getMap().getBounds() != null
-                    && spleefCompetition.getMap().getBounds().isInside(event.getBlock().getLocation()))
-            {
+            SpleefMap map = (SpleefMap) spleefCompetition.getMap();
+            String worldGuardRegion = map.getWorldGuardRegion();
+            if (worldGuardRegion == null || worldGuardRegion.isBlank()) {
+
+                continue;
+
+            }
+
+            if (WorldGuardSupport.isInsideRegion(event.getBlock().getLocation(), worldGuardRegion)) {
 
                 return spleefCompetition;
 

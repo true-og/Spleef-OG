@@ -61,10 +61,16 @@ public class SpleefCompetition extends LiveCompetition<SpleefCompetition> {
 
                 }
 
+                if (blocks.isEmpty()) {
+
+                    return;
+
+                }
+
                 Collections.shuffle(blocks);
 
                 long totalDecayTimeTicks = layerDecayTime.getSeconds() * 20;
-                long intervalBetweenDecayTicks = totalDecayTimeTicks / blocks.size();
+                long intervalBetweenDecayTicks = Math.max(1L, totalDecayTimeTicks / blocks.size());
 
                 this.decayTasks.add(new BukkitRunnable() {
 
@@ -121,12 +127,7 @@ public class SpleefCompetition extends LiveCompetition<SpleefCompetition> {
                     for (int z = layer.getBounds().getMinZ(); z <= layer.getBounds().getMaxZ(); z++) {
 
                         Block block = this.map.getWorld().getBlockAt(x, y, z);
-                        // Check if the block is air or null
-                        if (block.getType() == Material.AIR) {
-
-                            block.setBlockData(layer.getBlockData());
-
-                        }
+                        block.setBlockData(layer.getBlockData());
 
                     }
 

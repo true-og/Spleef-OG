@@ -23,7 +23,14 @@ public class SpleefConfig {
     @Nullable
     public ItemStack getShovel(String name) {
 
-        return this.shovels == null ? null : this.shovels.get(name).clone();
+        if (this.shovels == null) {
+
+            return null;
+
+        }
+
+        ItemStack shovel = this.shovels.get(name);
+        return shovel == null ? null : shovel.clone();
 
     }
 

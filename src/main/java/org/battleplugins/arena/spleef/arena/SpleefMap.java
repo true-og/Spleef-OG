@@ -14,6 +14,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
@@ -26,6 +27,9 @@ public class SpleefMap extends LiveCompetitionMap {
 
     @ArenaOption(name = "death-region", description = "The region where players will die if they fall into.")
     private Bounds deathRegion;
+
+    @ArenaOption(name = "worldguard-region", description = "The WorldGuard region ID used for Bow Spleef TNT.")
+    private String worldGuardRegion;
 
     private final Map<Position, Layer> positionToLayers = new HashMap<>();
 
@@ -50,19 +54,41 @@ public class SpleefMap extends LiveCompetitionMap {
 
             for (Layer layer : this.layers) {
 
-                for (int x = layer.getBounds().getMinX(); x <= layer.getBounds().getMaxX(); x++) {
+                indexLayer(layer);
 
-                    for (int y = layer.getBounds().getMinY(); y <= layer.getBounds().getMaxY(); y++) {
+            }
 
-                        for (int z = layer.getBounds().getMinZ(); z <= layer.getBounds().getMaxZ(); z++) {
+        }
 
-                            this.positionToLayers.put(Position.block(x, y, z), layer);
+    }
 
-                        }
+    private void indexLayer(Layer layer) {
 
-                    }
+        Bounds bounds = layer.getBounds();
+        for (int x = bounds.getMinX(); x <= bounds.getMaxX(); x++) {
+
+            for (int y = bounds.getMinY(); y <= bounds.getMaxY(); y++) {
+
+                for (int z = bounds.getMinZ(); z <= bounds.getMaxZ(); z++) {
+
+                    this.positionToLayers.put(Position.block(x, y, z), layer);
 
                 }
+
+            }
+
+        }
+
+    }
+
+    private void unindexLayer(Layer layer) {
+
+        Iterator<Map.Entry<Position, Layer>> it = this.positionToLayers.entrySet().iterator();
+        while (it.hasNext()) {
+
+            if (it.next().getValue() == layer) {
+
+                it.remove();
 
             }
 
@@ -98,6 +124,7 @@ public class SpleefMap extends LiveCompetitionMap {
         }
 
         this.layers.add(layer);
+        indexLayer(layer);
 
     }
 
@@ -110,18 +137,33 @@ public class SpleefMap extends LiveCompetitionMap {
         }
 
         this.layers.add(index, layer);
+        indexLayer(layer);
 
     }
 
     public void removeLayer(Layer layer) {
 
+        if (this.layers == null) {
+
+            return;
+
+        }
+
         this.layers.remove(layer);
+        unindexLayer(layer);
 
     }
 
     public void clearLayers() {
 
+        if (this.layers == null) {
+
+            return;
+
+        }
+
         this.layers.clear();
+        this.positionToLayers.clear();
 
     }
 
@@ -142,6 +184,13 @@ public class SpleefMap extends LiveCompetitionMap {
     public void setDeathRegion(Bounds deathRegion) {
 
         this.deathRegion = deathRegion;
+
+    }
+
+    @Nullable
+    public String getWorldGuardRegion() {
+
+        return this.worldGuardRegion;
 
     }
 

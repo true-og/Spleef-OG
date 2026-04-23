@@ -1,19 +1,26 @@
-# ArenaSpleef
+# Spleef-OG
 
-A spleef plugin using [BattleArena](https://github.com/BattlePlugins/BattleArena)
+A spleef plugin using [BattleArena](https://github.com/BattlePlugins/BattleArena).
 
-ArenaSpleef is the classic spleef plugin that dates back to the early days of Minecraft, but features multiple modes!
+Spleef-OG is a fork of BattlePlugins' ArenaSpleef, maintained for Purpur 1.19.4. It keeps the classic spleef experience alongside multiple modes and addresses critical stability bugs that blocked beta release of upstream 2.0.x.
 
 ## Spleef Modes
-- **Classic**: The classic spleef mode where players are given a shovel to break blocks and knock other players into the void.
-- **Splegg**: A spleef mode where players are given an egg cannon to shoot eggs at the ground to break blocks.
-- **Decay**: A spleef mode where blocks decay underneath the player. This is commonly played as "TNT Run", but any block can be used.
-- **Bow Spleef**: A spleef mode where players are given a bow to shoot arrows at the ground to break blocks. 
+- **Classic**: Players receive a shovel to break blocks and knock other players into the void.
+- **Splegg**: Players receive an egg cannon to shoot eggs that break blocks.
+- **Decay**: Blocks decay beneath the player. Commonly played as "TNT Run", but any block type works.
+- **Bow Spleef**: Players receive a bow to shoot arrows that break blocks. TNT layers prime on hit.
 
-For examples configurations of these modes, check out the [templates](https://github.com/BattlePlugins/ArenaSpleef/tree/master/templates) folder.
+For example configurations of these modes, see the [templates](./templates) folder.
 
-## Documentation
-Full documentation for ArenaSpleef can be found on the [BattleDocs](https://docs.battleplugins.org/books/additional-gamemodes/chapter/spleef) website.
+## Compatibility
+- **Server**: Purpur / Paper 1.19.4
+- **Java**: 17+
+- **Depends**: BattleArena 4.0.0-SNAPSHOT, WorldGuard
+- **Soft-depends**: WorldEdit
+
+## Notes
+- **Arena reset**: Layer pasting now hard-resets configured layer volumes each round instead of only filling air blocks.
+- **Bow Spleef TNT**: TNT priming is now gated by WorldGuard. Set `worldguard-region: <region-id>` on the map used by a Bow Spleef arena, and make sure that region covers the TNT layer.
 
 ## Commands
 | Command                               | Description                                    |
@@ -35,7 +42,14 @@ Full documentation for ArenaSpleef can be found on the [BattleDocs](https://docs
 | battlearena.command.spleef.layer.index  | /spleef layer index  |
 | battlearena.command.spleef.layer.list   | /spleef layer list   |
 
-## Links
-- Website: [https://www.battleplugins.org](https://www.battleplugins.org)
-- Download: [https://modrinth.com/plugin/arenaspleef](https://modrinth.com/plugin/arenaspleef)
-- Discord: [BattlePlugins Discord](https://discord.com/invite/J3Hjjb8)
+## Building
+```
+./gradlew build
+```
+Output: `build/libs/Spleef-OG-<version>.jar`
+
+## Credits
+Upstream: [BattlePlugins/ArenaSpleef](https://github.com/BattlePlugins/ArenaSpleef). Documentation: [BattleDocs](https://docs.battleplugins.org/books/additional-gamemodes/chapter/spleef).
+
+## License
+Released into the public domain. See `LICENSE`.

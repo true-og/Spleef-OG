@@ -18,6 +18,8 @@ victory-conditions:
 layer-decay-delay: 2m
 layer-decay-time: 1m
 game: bow_spleef
+# Required for Bow Spleef TNT handling.
+# worldguard-region: bowspleef
 events:
   on-join:
     - store{types=all}

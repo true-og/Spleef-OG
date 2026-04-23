@@ -5,5 +5,5 @@ description: A Spleef mode for BattleArena.
 author: BattlePlugins
 website: https://battleplugins.org
 api-version: ${apiVersion}
-depend: [BattleArena]
+depend: [BattleArena, WorldGuard]
 softdepend: [WorldEdit]
