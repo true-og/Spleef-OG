@@ -16,11 +16,16 @@ For example configurations of these modes, see the [templates](./templates) fold
 - **Server**: Purpur / Paper 1.19.4
 - **Java**: 17+
 - **Depends**: BattleArena 4.0.0-SNAPSHOT, WorldGuard
-- **Soft-depends**: WorldEdit
+- **Soft-depends**: HorseTp-OG, PetTeleport-OG, PlayerBounties-OG, WorldEdit
 
 ## Notes
 - **Arena reset**: Layer pasting now hard-resets configured layer volumes each round instead of only filling air blocks.
 - **Bow Spleef TNT**: TNT priming is now gated by WorldGuard. Set `worldguard-region: <region-id>` on the map used by a Bow Spleef arena, and make sure that region covers the TNT layer.
+
+## Integrations
+- **[PetTeleport-OG](https://github.com/true-og/PetTeleport-OG)**: pet teleports are suppressed while a player is in a Spleef match. No configuration required — PetTeleport-OG reads `SpleefAPI.isInSpleef`.
+- **[HorseTp-OG](https://github.com/true-og/HorseTp-OG)**: horse teleports are suppressed while a player is in a Spleef match. No configuration required — HorseTp-OG reads `SpleefAPI.isInSpleef`.
+- **[PlayerBounties-OG](https://github.com/true-og/PlayerBounties-OG)**: bounty claims and new bounty placements are cancelled whenever the claimant, victim, or target is in a Spleef match. Active automatically when PlayerBounties-OG is installed.
 
 ## Commands
 | Command                               | Description                                    |

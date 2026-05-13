@@ -10,6 +10,7 @@ import org.battleplugins.arena.spleef.action.GiveShovelAction;
 import org.battleplugins.arena.spleef.action.PasteLayersAction;
 import org.battleplugins.arena.spleef.api.SpleefApiListener;
 import org.battleplugins.arena.spleef.arena.SpleefArena;
+import org.battleplugins.arena.spleef.hook.PlayerBountiesListener;
 import org.bukkit.Bukkit;
 import org.bukkit.NamespacedKey;
 import org.bukkit.configuration.Configuration;
@@ -70,6 +71,13 @@ public class ArenaSpleef extends JavaPlugin {
         BattleArena.getInstance().registerArena(this, "Spleef", SpleefArena.class, SpleefArena::new);
 
         this.getServer().getPluginManager().registerEvents(new SpleefApiListener(), this);
+
+        if (PlayerBountiesListener.register(this)) {
+
+            this.getSLF4JLogger().info(
+                    "Hooked into PlayerBounties-OG; bounty claims and placements for players in Spleef will be cancelled.");
+
+        }
 
     }
 
