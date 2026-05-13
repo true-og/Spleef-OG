@@ -84,6 +84,17 @@ public class SpleefArena extends Arena {
 
         if (event.getCompetition() instanceof SpleefCompetition spleefCompetition) {
 
+            org.bukkit.World mapWorld = spleefCompetition.getMap().getWorld();
+            String worldName = mapWorld == null ? null : mapWorld.getName();
+            if (!ArenaSpleef.getInstance().getMainConfig().isWorldAllowed(worldName)) {
+
+                ArenaSpleef.getInstance().getSLF4JLogger().warn(
+                        "Refusing to start Spleef competition '{}' — world '{}' is not in the Spleef world whitelist.",
+                        spleefCompetition.getMap().getName(), worldName);
+                return;
+
+            }
+
             spleefCompetition.beginLayerDecay();
 
         }

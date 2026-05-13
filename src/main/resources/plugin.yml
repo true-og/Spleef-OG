@@ -6,4 +6,4 @@ author: BattlePlugins
 website: https://battleplugins.org
 api-version: ${apiVersion}
 depend: [BattleArena, WorldGuard]
-softdepend: [HorseTp-OG, PetTeleport-OG, PlayerBounties-OG, WorldEdit]
+softdepend: [GameModeInventories-OG, HorseTp-OG, PetTeleport-OG, PlayerBounties-OG, WorldEdit]

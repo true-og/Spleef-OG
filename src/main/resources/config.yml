@@ -10,6 +10,10 @@ config-version: 2.0 # The config version, do not change!
 # Whether projectiles (i.e. snowballs) should break blocks or not.
 projectiles-break-blocks: false
 
+# Worlds where Spleef arenas may be created and where matches may run.
+# Leave empty to allow every world. Names are matched case-insensitively.
+world-whitelist: []
+
 # The shovels to use for Spleef.
 shovels:
   classic: diamond_shovel{display-name=<yellow>Spleef Shovel}

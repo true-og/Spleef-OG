@@ -10,6 +10,7 @@ import org.battleplugins.arena.spleef.action.GiveShovelAction;
 import org.battleplugins.arena.spleef.action.PasteLayersAction;
 import org.battleplugins.arena.spleef.api.SpleefApiListener;
 import org.battleplugins.arena.spleef.arena.SpleefArena;
+import org.battleplugins.arena.spleef.hook.GameModeInventoriesListener;
 import org.battleplugins.arena.spleef.hook.PlayerBountiesListener;
 import org.bukkit.Bukkit;
 import org.bukkit.NamespacedKey;
@@ -34,8 +35,25 @@ public class ArenaSpleef extends JavaPlugin {
     private static ArenaSpleef instance;
 
     private SpleefConfig config;
+    private GameModeInventoriesListener gameModeInventoriesListener;
 
     private final NamespacedKey spleefItemKey = new NamespacedKey(this, "spleef_item");
+
+    @Override
+    public void onLoad() {
+
+        if (Bukkit.getPluginManager().getPlugin("WorldGuard") != null) {
+
+            SpleefFlags.register(this);
+
+        } else {
+
+            this.getSLF4JLogger().warn(
+                    "WorldGuard not present at load time; the 'allow-spleef' region flag will not be registered.");
+
+        }
+
+    }
 
     @Override
     public void onEnable() {
@@ -72,6 +90,14 @@ public class ArenaSpleef extends JavaPlugin {
 
         this.getServer().getPluginManager().registerEvents(new SpleefApiListener(), this);
 
+        this.gameModeInventoriesListener = GameModeInventoriesListener.register(this);
+        if (this.gameModeInventoriesListener != null) {
+
+            this.getSLF4JLogger()
+                    .info("Hooked into GameModeInventories-OG; Spleef will preserve gamemode-specific inventories.");
+
+        }
+
         if (PlayerBountiesListener.register(this)) {
 
             this.getSLF4JLogger().info(
@@ -83,6 +109,12 @@ public class ArenaSpleef extends JavaPlugin {
 
     @Override
     public void onDisable() {
+
+        if (this.gameModeInventoriesListener != null) {
+
+            this.gameModeInventoriesListener.releaseAll();
+
+        }
 
         Bukkit.getScheduler().cancelTasks(this);
 

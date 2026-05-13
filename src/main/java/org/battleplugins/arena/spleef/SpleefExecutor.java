@@ -18,6 +18,36 @@ public class SpleefExecutor extends ArenaCommandExecutor {
 
     }
 
+    @Override
+    public void create(Player player) {
+
+        SpleefConfig config = ArenaSpleef.getInstance().getMainConfig();
+        String worldName = player.getWorld().getName();
+        if (config != null && !config.isWorldAllowed(worldName)) {
+
+            SpleefMessages.CREATE_WORLD_NOT_WHITELISTED.send(player, worldName);
+            return;
+
+        }
+
+        if (!WorldGuardSupport.isEnabled()) {
+
+            SpleefMessages.CREATE_WG_MISSING.send(player);
+            return;
+
+        }
+
+        if (!WorldGuardSupport.isSpleefAllowedAt(player)) {
+
+            SpleefMessages.CREATE_WG_FLAG_REQUIRED.send(player);
+            return;
+
+        }
+
+        super.create(player);
+
+    }
+
     @ArenaCommand(commands = "layer", subCommands = "add", description = "Adds a layer to a spleef arena.", permissionNode = "layer.add")
     public void layer(Player player, CompetitionMap map) {
 
