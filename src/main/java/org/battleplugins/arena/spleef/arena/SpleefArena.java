@@ -1,6 +1,5 @@
 package org.battleplugins.arena.spleef.arena;
 
-import com.destroystokyo.paper.event.entity.ThrownEggHatchEvent;
 import io.papermc.paper.math.BlockPosition;
 import org.battleplugins.arena.Arena;
 import org.battleplugins.arena.ArenaPlayer;
@@ -9,42 +8,32 @@ import org.battleplugins.arena.competition.map.MapFactory;
 import org.battleplugins.arena.competition.phase.CompetitionPhaseType;
 import org.battleplugins.arena.config.ArenaOption;
 import org.battleplugins.arena.event.ArenaEventHandler;
-import org.battleplugins.arena.event.arena.ArenaPhaseCompleteEvent;
 import org.battleplugins.arena.event.arena.ArenaPhaseStartEvent;
+import org.battleplugins.arena.event.player.ArenaLeaveEvent;
 import org.battleplugins.arena.options.ArenaOptionType;
 import org.battleplugins.arena.options.types.BooleanArenaOption;
 import org.battleplugins.arena.spleef.ArenaSpleef;
 import org.battleplugins.arena.spleef.SpleefEventResolvers;
 import org.battleplugins.arena.spleef.SpleefExecutor;
-import org.battleplugins.arena.spleef.SpleefUtil;
+import org.battleplugins.arena.spleef.SpleefMessages;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
-import org.bukkit.Sound;
 import org.bukkit.block.Block;
-import org.bukkit.entity.Egg;
+import org.bukkit.block.data.BlockData;
+import org.bukkit.block.data.type.Snow;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.TNTPrimed;
 import org.bukkit.event.EventPriority;
-import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.TNTPrimeEvent;
 import org.bukkit.event.entity.ProjectileHitEvent;
-import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.meta.ItemMeta;
-import org.bukkit.metadata.FixedMetadataValue;
-import org.bukkit.persistence.PersistentDataType;
 
-import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 
 public class SpleefArena extends Arena {
-
-    @ArenaOption(name = "layer-decay-delay", description = "The delay before each layer decays.")
-    private Duration layerDecayDelay = Duration.ofMinutes(2);
-
-    @ArenaOption(name = "layer-decay-time", description = "The time it takes to decay and entire layer.")
-    private Duration layerDecayTime = Duration.ofMinutes(1);
 
     @ArenaOption(name = "game", description = "The spleef game.")
     private SpleefGame game = SpleefGame.CLASSIC;
@@ -54,7 +43,6 @@ public class SpleefArena extends Arena {
         super();
 
         this.getEventManager().registerArenaResolver(ProjectileHitEvent.class, SpleefEventResolvers.PROJECTILE_HIT);
-        this.getEventManager().registerArenaResolver(ThrownEggHatchEvent.class, SpleefEventResolvers.THROWN_EGG_HATCH);
         this.getEventManager().registerArenaResolver(TNTPrimeEvent.class, SpleefEventResolvers.TNT_PRIME.apply(this));
 
     }
@@ -91,28 +79,20 @@ public class SpleefArena extends Arena {
                 ArenaSpleef.getInstance().getSLF4JLogger().warn(
                         "Refusing to start Spleef competition '{}' — world '{}' is not in the Spleef world whitelist.",
                         spleefCompetition.getMap().getName(), worldName);
+                this.leaveWorldBlockedCompetition(spleefCompetition, worldName);
                 return;
 
             }
 
-            spleefCompetition.beginLayerDecay();
+            if (!spleefCompetition.isMatchRegionAllowed()) {
 
-        }
+                ArenaSpleef.getInstance().getSLF4JLogger().warn(
+                        "Refusing to start Spleef competition '{}' — map is not inside a whitelisted WorldGuard region.",
+                        spleefCompetition.getMap().getName());
+                this.leaveRegionBlockedCompetition(spleefCompetition);
+                return;
 
-    }
-
-    @ArenaEventHandler
-    public void onPhaseComplete(ArenaPhaseCompleteEvent event) {
-
-        if (!CompetitionPhaseType.INGAME.equals(event.getPhase().getType())) {
-
-            return;
-
-        }
-
-        if (event.getCompetition() instanceof SpleefCompetition spleefCompetition) {
-
-            spleefCompetition.stopLayerDecay();
+            }
 
         }
 
@@ -141,7 +121,16 @@ public class SpleefArena extends Arena {
         SpleefMap.Layer layer = spleefMap.getLayer(pos);
         if (layer != null) {
 
+            if (!(player.getCompetition() instanceof SpleefCompetition competition)
+                    || !competition.isLocationAllowed(event.getBlock().getLocation()))
+            {
+
+                return;
+
+            }
+
             event.setCancelled(false);
+            this.giveSnowballsFromFloor(event);
 
         }
 
@@ -163,78 +152,8 @@ public class SpleefArena extends Arena {
         if (spleefMap.getDeathRegion() != null && spleefMap.getDeathRegion().isInside(event.getTo())) {
 
             event.getPlayer().damage(10000.0D); // Kill the player
-            return;
 
         }
-
-        // Ensure that the game is the decay spleef game
-        if (this.game != SpleefGame.DECAY) {
-
-            return;
-
-        }
-
-        // If a player changes blocks and the block below is of a
-        // spleef layer, then decay the layer
-        Block block = SpleefUtil.getBlockUnderPlayer(event.getTo().getBlockY() - 1, event.getTo());
-        if (block == null || block.getType().isAir()) {
-
-            return;
-
-        }
-
-        BlockPosition pos = block.getLocation().toBlock();
-        SpleefMap.Layer layer = spleefMap.getLayer(pos);
-        if (layer == null) {
-
-            return;
-
-        }
-
-        competition.decayBlock(pos);
-
-    }
-
-    @ArenaEventHandler(priority = EventPriority.LOW)
-    public void onInteract(PlayerInteractEvent event) {
-
-        ItemStack item = event.getItem();
-        if (item == null || item.getItemMeta() == null) {
-
-            return;
-
-        }
-
-        if (this.game != SpleefGame.SPLEGG) {
-
-            return;
-
-        }
-
-        if (event.getAction() != Action.RIGHT_CLICK_AIR && event.getAction() != Action.RIGHT_CLICK_BLOCK) {
-
-            return;
-
-        }
-
-        ItemMeta meta = item.getItemMeta();
-        if (!meta.getPersistentDataContainer().has(ArenaSpleef.getInstance().getSpleefItemKey(),
-                PersistentDataType.BOOLEAN))
-        {
-
-            return; // Not a spleef item, do not fire egg
-
-        }
-
-        event.setCancelled(true);
-
-        // Shoot an egg
-        event.getPlayer().launchProjectile(Egg.class, null, egg -> {
-
-            egg.setMetadata("splegg", new FixedMetadataValue(ArenaSpleef.getInstance(), true));
-            event.getPlayer().playSound(event.getPlayer().getLocation(), Sound.ENTITY_EGG_THROW, 1, 1);
-
-        });
 
     }
 
@@ -257,21 +176,13 @@ public class SpleefArena extends Arena {
 
         }
 
-        block.setType(Material.AIR);
-
-    }
-
-    @ArenaEventHandler(priority = EventPriority.LOW)
-    public void onEggHatch(ThrownEggHatchEvent event) {
-
-        Egg egg = event.getEgg();
-        if (!egg.hasMetadata("splegg")) {
+        if (!competition.isLocationAllowed(block.getLocation())) {
 
             return;
 
         }
 
-        event.setHatching(false);
+        block.setType(Material.AIR);
 
     }
 
@@ -301,15 +212,68 @@ public class SpleefArena extends Arena {
 
     }
 
-    public Duration getLayerDecayDelay() {
+    private void giveSnowballsFromFloor(BlockBreakEvent event) {
 
-        return this.layerDecayDelay;
+        int amount = this.getSnowballDropCount(event.getBlock());
+        if (amount <= 0) {
+
+            return;
+
+        }
+
+        event.setDropItems(false);
+        event.getPlayer().getInventory().addItem(new ItemStack(Material.SNOWBALL, amount));
 
     }
 
-    public Duration getLayerDecayTime() {
+    private int getSnowballDropCount(Block block) {
 
-        return this.layerDecayTime;
+        if (block.getType() == Material.SNOW_BLOCK) {
+
+            return 4;
+
+        }
+
+        if (block.getType() != Material.SNOW) {
+
+            return 0;
+
+        }
+
+        BlockData blockData = block.getBlockData();
+        if (blockData instanceof Snow snow) {
+
+            return snow.getLayers();
+
+        }
+
+        return 1;
+
+    }
+
+    private void leaveWorldBlockedCompetition(SpleefCompetition competition, String worldName) {
+
+        List<ArenaPlayer> players = new ArrayList<>(competition.getPlayers());
+        players.addAll(competition.getSpectators());
+        for (ArenaPlayer player : players) {
+
+            SpleefMessages.WORLD_BLOCKED_AT_RUNTIME.send(player.getPlayer(), worldName);
+            competition.leave(player, ArenaLeaveEvent.Cause.PLUGIN);
+
+        }
+
+    }
+
+    private void leaveRegionBlockedCompetition(SpleefCompetition competition) {
+
+        List<ArenaPlayer> players = new ArrayList<>(competition.getPlayers());
+        players.addAll(competition.getSpectators());
+        for (ArenaPlayer player : players) {
+
+            SpleefMessages.MATCH_REGION_NOT_WHITELISTED.send(player.getPlayer());
+            competition.leave(player, ArenaLeaveEvent.Cause.PLUGIN);
+
+        }
 
     }
 

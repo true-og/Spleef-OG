@@ -10,7 +10,10 @@ import com.sk89q.worldguard.protection.flags.StateFlag;
 import com.sk89q.worldguard.protection.managers.RegionManager;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.World;
 import org.bukkit.entity.Player;
+
+import java.util.List;
 
 public final class WorldGuardSupport {
 
@@ -26,6 +29,12 @@ public final class WorldGuardSupport {
 
     public static boolean isInsideRegion(Location location, String regionId) {
 
+        if (location.getWorld() == null) {
+
+            return false;
+
+        }
+
         RegionManager regionManager = WorldGuard.getInstance().getPlatform().getRegionContainer()
                 .get(BukkitAdapter.adapt(location.getWorld()));
         if (regionManager == null) {
@@ -37,6 +46,43 @@ public final class WorldGuardSupport {
         BlockVector3 position = BlockVector3.at(location.getBlockX(), location.getBlockY(), location.getBlockZ());
         ApplicableRegionSet regions = regionManager.getApplicableRegions(position);
         return regions.getRegions().stream().anyMatch(region -> region.getId().equalsIgnoreCase(regionId));
+
+    }
+
+    public static boolean isInsideAnyRegion(Location location, List<String> regionIds) {
+
+        if (location == null || location.getWorld() == null || regionIds == null || regionIds.isEmpty()) {
+
+            return false;
+
+        }
+
+        RegionManager regionManager = WorldGuard.getInstance().getPlatform().getRegionContainer()
+                .get(BukkitAdapter.adapt(location.getWorld()));
+        if (regionManager == null) {
+
+            return false;
+
+        }
+
+        BlockVector3 position = BlockVector3.at(location.getBlockX(), location.getBlockY(), location.getBlockZ());
+        ApplicableRegionSet regions = regionManager.getApplicableRegions(position);
+        return regions.getRegions().stream().anyMatch(region -> regionIds.stream()
+                .anyMatch(allowed -> allowed != null && region.getId().equalsIgnoreCase(allowed)));
+
+    }
+
+    public static boolean regionExists(World world, String regionId) {
+
+        RegionManager regionManager = WorldGuard.getInstance().getPlatform().getRegionContainer()
+                .get(BukkitAdapter.adapt(world));
+        if (regionManager == null) {
+
+            return false;
+
+        }
+
+        return regionManager.getRegion(regionId) != null;
 
     }
 

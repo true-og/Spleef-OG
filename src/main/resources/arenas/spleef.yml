@@ -1,5 +1,7 @@
 name: Spleef
 type: Match
+# Optional. If config.yml region-whitelist is set, use a whitelisted region ID here.
+# worldguard-region: spleef_classic
 team-options:
   named-teams: false
   team-size: 1
@@ -14,8 +16,6 @@ victory-conditions:
     amount: 1
   time-limit:
     time-limit: 5m
-layer-decay-delay: 2m
-layer-decay-time: 1m
 game: classic
 events:
   on-join:

@@ -1,54 +1,83 @@
 # Spleef-OG
 
-A spleef plugin using [BattleArena](https://github.com/BattlePlugins/BattleArena).
+A BattleArena-backed Spleef plugin for Purpur / Paper 1.19.4.
 
-Spleef-OG is a fork of BattlePlugins' ArenaSpleef, maintained for Purpur 1.19.4. It keeps the classic spleef experience alongside multiple modes and addresses critical stability bugs that blocked beta release of upstream 2.0.x.
+Spleef-OG is maintained for TrueOG-style server-spawn minigames. It runs arenas in WorldGuard regions in the main world, not in MyWorlds world copies.
 
-## Spleef Modes
-- **Classic**: Players receive a shovel to break blocks and knock other players into the void.
-- **Splegg**: Players receive an egg cannon to shoot eggs that break blocks.
-- **Decay**: Blocks decay beneath the player. Commonly played as "TNT Run", but any block type works.
-- **Bow Spleef**: Players receive a bow to shoot arrows that break blocks. TNT layers prime on hit.
+## Supported Modes
+- **Classic Spleef**: players receive a shovel and break configured snow floor layers. Breaking `snow_block` floors grants 4 snowballs; breaking `snow` layers grants snowballs equal to the layer count. Thrown snowballs break configured Spleef layer blocks.
+- **Bow Spleef**: players receive a bow and arrow. Arrows break configured layer blocks, and TNT projectile handling is gated by a configured WorldGuard region.
 
-For example configurations of these modes, see the [templates](./templates) folder.
+For example configurations, see the [templates](./templates) folder.
+
+## Region Model
+- Spleef arenas are intended to live in WorldGuard regions in the main `world` near server spawn.
+- `config.yml` defaults `world-whitelist` to `world`. Add your real spawn-world name there if it differs.
+- `region-whitelist` can restrict Spleef to specific WorldGuard region IDs. Leave it empty to allow any region in an allowed world.
+- Arena creation requires standing in a WorldGuard region with `allow-spleef` set to `allow`.
+- Maps can set `worldguard-region` to their region ID. Bow Spleef maps should set it to the region that covers the TNT/layer area.
+- When `region-whitelist` is set, joins, layer resets, block breaks, snowball/arrow block hits, and Bow Spleef TNT handling are limited to whitelisted regions.
+- Spleef-OG does not depend on MyWorlds and does not create per-match world copies.
+
+Example setup flow:
+```text
+/rg define spleef_classic
+/rg flag spleef_classic allow-spleef allow
+/spleef create classic
+/spleef layer add classic
+/spleef deathregion classic
+```
+
+For Bow Spleef, also run:
+```text
+/spleef worldguardregion bowspleef spleef_bow
+```
+
+Example `config.yml` whitelist:
+```yaml
+world-whitelist:
+  - world
+region-whitelist:
+  - spleef_classic
+  - spleef_bow
+```
 
 ## Compatibility
 - **Server**: Purpur / Paper 1.19.4
 - **Java**: 17+
 - **Depends**: BattleArena 4.0.0-SNAPSHOT, WorldGuard
-- **Soft-depends**: HorseTp-OG, PetTeleport-OG, PlayerBounties-OG, WorldEdit
-
-## Notes
-- **Arena reset**: Layer pasting now hard-resets configured layer volumes each round instead of only filling air blocks.
-- **Bow Spleef TNT**: TNT priming is now gated by WorldGuard. Set `worldguard-region: <region-id>` on the map used by a Bow Spleef arena, and make sure that region covers the TNT layer.
+- **Soft-depends**: GameModeInventories-OG, HorseTp-OG, PetTeleport-OG, PlayerBounties-OG, WorldEdit
 
 ## Integrations
-- **[PetTeleport-OG](https://github.com/true-og/PetTeleport-OG)**: pet teleports are suppressed while a player is in a Spleef match. No configuration required — PetTeleport-OG reads `SpleefAPI.isInSpleef`.
-- **[HorseTp-OG](https://github.com/true-og/HorseTp-OG)**: horse teleports are suppressed while a player is in a Spleef match. No configuration required — HorseTp-OG reads `SpleefAPI.isInSpleef`.
-- **[PlayerBounties-OG](https://github.com/true-og/PlayerBounties-OG)**: bounty claims and new bounty placements are cancelled whenever the claimant, victim, or target is in a Spleef match. Active automatically when PlayerBounties-OG is installed.
+- **PetTeleport-OG**: pet teleports are suppressed while a player is in a Spleef match. No configuration required; PetTeleport-OG reads `SpleefAPI.isInSpleef`.
+- **HorseTp-OG**: horse teleports are suppressed while a player is in a Spleef match. No configuration required; HorseTp-OG reads `SpleefAPI.isInSpleef`.
+- **PlayerBounties-OG**: bounty claims and new bounty placements are cancelled whenever the claimant, victim, or target is in a Spleef match.
+- **GameModeInventories-OG**: gamemode-specific inventories are preserved while players enter and leave Spleef.
 
 ## Commands
-| Command                               | Description                                    |
-|---------------------------------------|------------------------------------------------|
-| /spleef deathregion <map> <region>    | Sets the death region for a spleef arena.      |
-| /spleef layer add <map>               | Adds a layer to a spleef arena.                |
-| /spleef layer remove <map> <index>    | Removes a layer from a spleef arena.           |
-| /spleef layer clear <map>             | Clears all layers from a spleef arena.         |
-| /spleef layer index <map> <from> <to> | Changes the index of a layer.                  |
-| /spleef layer list <map>              | Lists all layers in a spleef arena.            |
+| Command                                       | Description                                         |
+|-----------------------------------------------|-----------------------------------------------------|
+| `/spleef deathregion <map>`                   | Sets the death region for a Spleef arena.           |
+| `/spleef layer add <map>`                     | Adds a floor layer to a Spleef arena.               |
+| `/spleef layer remove <map> <index>`          | Removes a layer from a Spleef arena.                |
+| `/spleef layer clear <map>`                   | Clears all layers from a Spleef arena.              |
+| `/spleef layer index <map> <from> <to>`       | Changes the index of a layer.                       |
+| `/spleef layer list <map>`                    | Lists all layers in a Spleef arena.                 |
+| `/spleef worldguardregion <map> <region>`     | Sets the map WorldGuard region ID.                  |
 
 ## Permissions
-| Permission                              | Command              |
-|-----------------------------------------|----------------------|
-| battlearena.command.spleef.deathregion  | /spleef deathregion  |
-| battlearena.command.spleef.layer.add    | /spleef layer add    |
-| battlearena.command.spleef.layer.remove | /spleef layer remove |
-| battlearena.command.spleef.layer.clear  | /spleef layer clear  |
-| battlearena.command.spleef.layer.index  | /spleef layer index  |
-| battlearena.command.spleef.layer.list   | /spleef layer list   |
+| Permission                                   | Command                         |
+|----------------------------------------------|---------------------------------|
+| `battlearena.command.spleef.deathregion`     | `/spleef deathregion`           |
+| `battlearena.command.spleef.layer.add`       | `/spleef layer add`             |
+| `battlearena.command.spleef.layer.remove`    | `/spleef layer remove`          |
+| `battlearena.command.spleef.layer.clear`     | `/spleef layer clear`           |
+| `battlearena.command.spleef.layer.index`     | `/spleef layer index`           |
+| `battlearena.command.spleef.layer.list`      | `/spleef layer list`            |
+| `battlearena.command.spleef.worldguardregion` | `/spleef worldguardregion`      |
 
 ## API
-Spleef-OG exposes a small Bukkit-native API for other plugins. No BattleArena types on the surface — only `org.bukkit.entity.Player`.
+Spleef-OG exposes a small Bukkit-native API for other plugins. No BattleArena types on the surface, only `org.bukkit.entity.Player`.
 
 ### Check if a player is in a Spleef match
 Java:
@@ -77,83 +106,10 @@ Both extend `org.bukkit.event.player.PlayerEvent`.
 | `SpleefJoinEvent`  | Player joins any Spleef-mode competition  | `true`                                      |
 | `SpleefLeaveEvent` | Player leaves any Spleef-mode competition | `false`                                     |
 
-Covers every mode (Classic, Splegg, Decay, Bow Spleef). State flips before the event fires, so listeners observe the post-transition value.
-
-### Consumer setup (Gradle Kotlin DSL)
-```kotlin
-repositories {
-    maven("https://repo.papermc.io/repository/maven-public/")
-}
-
-dependencies {
-    compileOnly("io.papermc.paper:paper-api:1.19.4-R0.1-SNAPSHOT")
-    compileOnly(files("libs/Spleef-OG-<version>.jar"))
-}
-```
-
-`plugin.yml`:
-```yaml
-depend: [Spleef-OG]
-```
-
-### Listener examples
-Java:
-```java
-import org.battleplugins.arena.spleef.api.SpleefAPI;
-import org.battleplugins.arena.spleef.api.SpleefJoinEvent;
-import org.battleplugins.arena.spleef.api.SpleefLeaveEvent;
-import org.bukkit.entity.Player;
-import org.bukkit.event.EventHandler;
-import org.bukkit.event.Listener;
-
-public class SpleefHooks implements Listener {
-
-    @EventHandler
-    public void onJoin(SpleefJoinEvent event) {
-
-        Player player = event.getPlayer();
-        // SpleefAPI.isInSpleef(player) == true
-
-    }
-
-    @EventHandler
-    public void onLeave(SpleefLeaveEvent event) {
-
-        Player player = event.getPlayer();
-        // SpleefAPI.isInSpleef(player) == false
-
-    }
-
-}
-```
-
-Kotlin:
-```kotlin
-import org.battleplugins.arena.spleef.api.SpleefAPI
-import org.battleplugins.arena.spleef.api.SpleefJoinEvent
-import org.battleplugins.arena.spleef.api.SpleefLeaveEvent
-import org.bukkit.event.EventHandler
-import org.bukkit.event.Listener
-
-class SpleefHooks : Listener {
-
-    @EventHandler
-    fun onJoin(event: SpleefJoinEvent) {
-        val player = event.player
-        // SpleefAPI.isInSpleef(player) == true
-    }
-
-    @EventHandler
-    fun onLeave(event: SpleefLeaveEvent) {
-        val player = event.player
-        // SpleefAPI.isInSpleef(player) == false
-    }
-
-}
-```
+Covers Classic Spleef and Bow Spleef. State flips before the event fires, so listeners observe the post-transition value.
 
 ## Building
-```
+```text
 ./gradlew build
 ```
 Output: `build/libs/Spleef-OG-<version>.jar`

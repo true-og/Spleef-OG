@@ -1,117 +1,89 @@
 package org.battleplugins.arena.spleef.arena;
 
-import io.papermc.paper.math.Position;
 import org.battleplugins.arena.competition.CompetitionType;
+import org.battleplugins.arena.competition.JoinResult;
 import org.battleplugins.arena.competition.LiveCompetition;
+import org.battleplugins.arena.competition.PlayerRole;
+import org.battleplugins.arena.competition.map.options.Bounds;
 import org.battleplugins.arena.spleef.ArenaSpleef;
-import org.bukkit.Bukkit;
-import org.bukkit.Material;
+import org.battleplugins.arena.spleef.SpleefConfig;
+import org.battleplugins.arena.spleef.SpleefMessages;
+import org.battleplugins.arena.spleef.WorldGuardSupport;
+import org.bukkit.Location;
+import org.bukkit.World;
 import org.bukkit.block.Block;
-import org.bukkit.scheduler.BukkitRunnable;
-import org.bukkit.scheduler.BukkitTask;
+import org.bukkit.entity.Player;
 
-import java.time.Duration;
-import java.util.ArrayList;
-import java.util.Collections;
+import java.util.Collection;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 public class SpleefCompetition extends LiveCompetition<SpleefCompetition> {
 
-    private final SpleefArena arena;
-    private final SpleefMap map;
+    private static final JoinResult REGION_NOT_JOINABLE = new JoinResult(false,
+            SpleefMessages.MATCH_REGION_NOT_WHITELISTED);
 
-    private final List<BukkitTask> decayTasks = new ArrayList<>();
-    private final List<Position> pendingDecays = new ArrayList<>();
+    private final SpleefMap map;
 
     public SpleefCompetition(SpleefArena arena, CompetitionType type, SpleefMap map) {
 
         super(arena, type, map);
 
-        this.arena = arena;
         this.map = map;
 
     }
 
-    public void beginLayerDecay() {
+    @Override
+    public CompletableFuture<JoinResult> canJoin(Collection<Player> players, PlayerRole role) {
 
-        List<SpleefMap.Layer> layers = new ArrayList<>(this.map.getLayers());
-        layers.sort((layer1, layer2) -> layer2.getBounds().getMaxY() - layer1.getBounds().getMaxY());
+        if (!this.isMatchRegionAllowed()) {
 
-        for (int i = 0; i < layers.size(); i++) {
-
-            SpleefMap.Layer layer = layers.get(i);
-
-            long delay = (i + 1) * this.arena.getLayerDecayDelay().toSeconds() * 20;
-            BukkitTask decayTask = Bukkit.getScheduler().runTaskLater(ArenaSpleef.getInstance(), () -> {
-
-                Duration layerDecayTime = this.arena.getLayerDecayTime();
-                List<Block> blocks = new ArrayList<>(layer.getBounds().getVolume());
-
-                for (int x = layer.getBounds().getMinX(); x <= layer.getBounds().getMaxX(); x++) {
-
-                    for (int y = layer.getBounds().getMinY(); y <= layer.getBounds().getMaxY(); y++) {
-
-                        for (int z = layer.getBounds().getMinZ(); z <= layer.getBounds().getMaxZ(); z++) {
-
-                            blocks.add(this.map.getWorld().getBlockAt(x, y, z));
-
-                        }
-
-                    }
-
-                }
-
-                if (blocks.isEmpty()) {
-
-                    return;
-
-                }
-
-                Collections.shuffle(blocks);
-
-                long totalDecayTimeTicks = layerDecayTime.getSeconds() * 20;
-                long intervalBetweenDecayTicks = Math.max(1L, totalDecayTimeTicks / blocks.size());
-
-                this.decayTasks.add(new BukkitRunnable() {
-
-                    private int index = 0;
-
-                    @Override
-                    public void run() {
-
-                        if (index >= blocks.size()) {
-
-                            this.cancel();
-                            return;
-
-                        }
-
-                        Block block = blocks.get(index);
-                        block.setType(Material.AIR);
-
-                        this.index++;
-
-                    }
-
-                }.runTaskTimer(ArenaSpleef.getInstance(), 0, intervalBetweenDecayTicks));
-
-            }, delay);
-
-            this.decayTasks.add(decayTask);
+            return CompletableFuture.completedFuture(REGION_NOT_JOINABLE);
 
         }
+
+        return super.canJoin(players, role);
 
     }
 
-    public void stopLayerDecay() {
+    public boolean isMatchRegionAllowed() {
 
-        for (BukkitTask decayTask : this.decayTasks) {
+        SpleefConfig config = ArenaSpleef.getInstance().getMainConfig();
+        if (config == null || !config.hasRegionWhitelist()) {
 
-            decayTask.cancel();
+            return true;
 
         }
 
-        this.decayTasks.clear();
+        World world = this.map.getWorld();
+        if (world == null) {
+
+            return false;
+
+        }
+
+        String worldGuardRegion = this.map.getWorldGuardRegion();
+        if (config.isRegionAllowed(worldGuardRegion) && WorldGuardSupport.regionExists(world, worldGuardRegion)) {
+
+            return true;
+
+        }
+
+        List<SpleefMap.Layer> layers = this.map.getLayers();
+        if (!layers.isEmpty()) {
+
+            return layers.stream().allMatch(layer -> this.isBoundsInAllowedRegion(layer.getBounds()));
+
+        }
+
+        return this.map.bounds().map(this::isBoundsInAllowedRegion).orElse(false);
+
+    }
+
+    public boolean isLocationAllowed(Location location) {
+
+        SpleefConfig config = ArenaSpleef.getInstance().getMainConfig();
+        return config == null || config.isRegionAllowedAt(location);
 
     }
 
@@ -127,6 +99,12 @@ public class SpleefCompetition extends LiveCompetition<SpleefCompetition> {
                     for (int z = layer.getBounds().getMinZ(); z <= layer.getBounds().getMaxZ(); z++) {
 
                         Block block = this.map.getWorld().getBlockAt(x, y, z);
+                        if (!this.isLocationAllowed(block.getLocation())) {
+
+                            continue;
+
+                        }
+
                         block.setBlockData(layer.getBlockData());
 
                     }
@@ -139,24 +117,23 @@ public class SpleefCompetition extends LiveCompetition<SpleefCompetition> {
 
     }
 
-    public void decayBlock(Position position) {
+    private boolean isBoundsInAllowedRegion(Bounds bounds) {
 
-        if (this.pendingDecays.contains(position)) {
+        World world = this.map.getWorld();
+        if (world == null) {
 
-            return;
+            return false;
 
         }
 
-        this.pendingDecays.add(position);
-
-        Bukkit.getScheduler().runTaskLater(ArenaSpleef.getInstance(), () -> {
-
-            Block block = this.map.getWorld().getBlockAt(position.blockX(), position.blockY(), position.blockZ());
-            block.setType(Material.AIR);
-
-            this.pendingDecays.remove(position);
-
-        }, 5);
+        return this.isLocationAllowed(new Location(world, bounds.getMinX(), bounds.getMinY(), bounds.getMinZ()))
+                && this.isLocationAllowed(new Location(world, bounds.getMinX(), bounds.getMinY(), bounds.getMaxZ()))
+                && this.isLocationAllowed(new Location(world, bounds.getMinX(), bounds.getMaxY(), bounds.getMinZ()))
+                && this.isLocationAllowed(new Location(world, bounds.getMinX(), bounds.getMaxY(), bounds.getMaxZ()))
+                && this.isLocationAllowed(new Location(world, bounds.getMaxX(), bounds.getMinY(), bounds.getMinZ()))
+                && this.isLocationAllowed(new Location(world, bounds.getMaxX(), bounds.getMinY(), bounds.getMaxZ()))
+                && this.isLocationAllowed(new Location(world, bounds.getMaxX(), bounds.getMaxY(), bounds.getMinZ()))
+                && this.isLocationAllowed(new Location(world, bounds.getMaxX(), bounds.getMaxY(), bounds.getMaxZ()));
 
     }
 

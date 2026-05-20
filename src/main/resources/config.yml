@@ -7,16 +7,16 @@
 # -----------------
 config-version: 2.0 # The config version, do not change!
 
-# Whether projectiles (i.e. snowballs) should break blocks or not.
-projectiles-break-blocks: false
-
 # Worlds where Spleef arenas may be created and where matches may run.
 # Leave empty to allow every world. Names are matched case-insensitively.
-world-whitelist: []
+world-whitelist:
+  - world
 
-# The shovels to use for Spleef.
+# WorldGuard regions where Spleef arenas may be created and matches may modify blocks.
+# Leave empty to allow any region in an allowed world.
+region-whitelist: []
+
+# The tools to use for Spleef.
 shovels:
   classic: diamond_shovel{display-name=<yellow>Spleef Shovel}
-  super-shovel: golden_shovel{display-name=<aqua><bold>Super Spleef Shovel;enchantments=[unbreaking:10,efficiency:5]}
-  egg-cannon: netherite_shovel{display-name=<gold><bold>Egg Cannon;enchantments=[unbreaking:10,efficiency:5];item-flags=[hide_enchants]}
   bow: bow{display-name=<red><bold>Fire Bow;enchantments=[unbreaking:10,infinity:1,flame:1]}

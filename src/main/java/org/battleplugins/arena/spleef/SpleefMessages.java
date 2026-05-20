@@ -36,11 +36,19 @@ public final class SpleefMessages {
 
     public static final Message CREATE_WORLD_NOT_WHITELISTED = Messages.error("spleef-create-world-not-whitelisted",
             "Spleef arenas cannot be created in this world. World <secondary>{}</secondary> is not in the Spleef world whitelist.");
+    public static final Message CREATE_REGION_NOT_WHITELISTED = Messages.error("spleef-create-region-not-whitelisted",
+            "Spleef arenas cannot be created here. Stand inside a WorldGuard region listed in the Spleef region whitelist.");
     public static final Message CREATE_WG_FLAG_REQUIRED = Messages.error("spleef-create-wg-flag-required",
             "You must stand inside a WorldGuard region that has the <secondary>allow-spleef</secondary> flag set to <secondary>allow</secondary> to create a Spleef arena here.");
     public static final Message CREATE_WG_MISSING = Messages.error("spleef-create-wg-missing",
             "WorldGuard is not loaded; Spleef arena creation is disabled.");
     public static final Message WORLD_BLOCKED_AT_RUNTIME = Messages.error("spleef-world-blocked",
             "Spleef matches are not permitted in world <secondary>{}</secondary>.");
+    public static final Message MATCH_REGION_NOT_WHITELISTED = Messages.error("spleef-match-region-not-whitelisted",
+            "This Spleef map is not inside a whitelisted WorldGuard region.");
+    public static final Message WORLDGUARD_REGION_NOT_FOUND = Messages.error("spleef-worldguard-region-not-found",
+            "WorldGuard region <secondary>{}</secondary> was not found in this map's world.");
+    public static final Message WORLDGUARD_REGION_SET = Messages.success("spleef-worldguard-region-set",
+            "WorldGuard region set to <secondary>{}</secondary>.");
 
 }

@@ -1,14 +1,19 @@
 package org.battleplugins.arena.spleef;
 
+import org.battleplugins.arena.BattleArena;
 import org.battleplugins.arena.command.ArenaCommand;
 import org.battleplugins.arena.command.ArenaCommandExecutor;
 import org.battleplugins.arena.command.Argument;
 import org.battleplugins.arena.competition.map.CompetitionMap;
 import org.battleplugins.arena.competition.map.options.Bounds;
+import org.battleplugins.arena.config.ParseException;
+import org.battleplugins.arena.messages.Messages;
 import org.battleplugins.arena.spleef.arena.SpleefArena;
 import org.battleplugins.arena.spleef.arena.SpleefMap;
 import org.battleplugins.arena.spleef.editor.SpleefEditorWizards;
 import org.bukkit.entity.Player;
+
+import java.io.IOException;
 
 public class SpleefExecutor extends ArenaCommandExecutor {
 
@@ -33,6 +38,13 @@ public class SpleefExecutor extends ArenaCommandExecutor {
         if (!WorldGuardSupport.isEnabled()) {
 
             SpleefMessages.CREATE_WG_MISSING.send(player);
+            return;
+
+        }
+
+        if (config != null && !config.isRegionAllowedAt(player.getLocation())) {
+
+            SpleefMessages.CREATE_REGION_NOT_WHITELISTED.send(player);
             return;
 
         }
@@ -175,6 +187,47 @@ public class SpleefExecutor extends ArenaCommandExecutor {
         }
 
         SpleefEditorWizards.DEATH_REGION.openWizard(player, this.arena, ctx -> ctx.setMap(spleefMap));
+
+    }
+
+    @ArenaCommand(commands = "worldguardregion", description = "Sets the WorldGuard region for a spleef arena.", permissionNode = "worldguardregion")
+    public void setWorldGuardRegion(Player player, CompetitionMap map, @Argument(name = "region") String region) {
+
+        if (!(map instanceof SpleefMap spleefMap)) {
+
+            return; // Should not happen but just incase
+
+        }
+
+        if (!WorldGuardSupport.isEnabled()) {
+
+            SpleefMessages.CREATE_WG_MISSING.send(player);
+            return;
+
+        }
+
+        if (spleefMap.getWorld() == null || !WorldGuardSupport.regionExists(spleefMap.getWorld(), region)) {
+
+            SpleefMessages.WORLDGUARD_REGION_NOT_FOUND.send(player, region);
+            return;
+
+        }
+
+        spleefMap.setWorldGuardRegion(region);
+
+        try {
+
+            spleefMap.save();
+
+        } catch (ParseException | IOException e) {
+
+            BattleArena.getInstance().error("Failed to save map file for arena {}", this.arena.getName(), e);
+            Messages.MAP_FAILED_TO_SAVE.send(player, spleefMap.getName());
+            return;
+
+        }
+
+        SpleefMessages.WORLDGUARD_REGION_SET.send(player, region);
 
     }
 

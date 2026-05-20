@@ -15,10 +15,8 @@ victory-conditions:
     amount: 1
   time-limit:
     time-limit: 5m
-layer-decay-delay: 2m
-layer-decay-time: 1m
 game: bow_spleef
-# Required for Bow Spleef TNT handling.
+# Required for Bow Spleef TNT handling. If config.yml region-whitelist is set, use a whitelisted region ID here.
 # worldguard-region: bowspleef
 events:
   on-join:

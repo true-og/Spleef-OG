@@ -28,7 +28,7 @@ public class SpleefMap extends LiveCompetitionMap {
     @ArenaOption(name = "death-region", description = "The region where players will die if they fall into.")
     private Bounds deathRegion;
 
-    @ArenaOption(name = "worldguard-region", description = "The WorldGuard region ID used for Bow Spleef TNT.")
+    @ArenaOption(name = "worldguard-region", description = "The WorldGuard region ID used for match region checks and Bow Spleef TNT.")
     private String worldGuardRegion;
 
     private final Map<Position, Layer> positionToLayers = new HashMap<>();
@@ -191,6 +191,12 @@ public class SpleefMap extends LiveCompetitionMap {
     public String getWorldGuardRegion() {
 
         return this.worldGuardRegion;
+
+    }
+
+    public void setWorldGuardRegion(String worldGuardRegion) {
+
+        this.worldGuardRegion = worldGuardRegion;
 
     }
 

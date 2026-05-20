@@ -1,7 +1,7 @@
 name: Spleef-OG
 main: org.battleplugins.arena.spleef.ArenaSpleef
 version: ${version}
-description: A Spleef mode for BattleArena.
+description: Classic and Bow Spleef modes for BattleArena WorldGuard regions.
 author: BattlePlugins
 website: https://battleplugins.org
 api-version: ${apiVersion}

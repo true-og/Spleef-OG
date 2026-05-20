@@ -1,6 +1,5 @@
 package org.battleplugins.arena.spleef;
 
-import com.destroystokyo.paper.event.entity.ThrownEggHatchEvent;
 import org.battleplugins.arena.ArenaPlayer;
 import org.battleplugins.arena.BattleArena;
 import org.battleplugins.arena.competition.Competition;
@@ -11,9 +10,9 @@ import org.battleplugins.arena.spleef.arena.SpleefCompetition;
 import org.battleplugins.arena.spleef.arena.SpleefGame;
 import org.battleplugins.arena.spleef.arena.SpleefMap;
 import org.bukkit.entity.AbstractArrow;
-import org.bukkit.entity.Egg;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Projectile;
+import org.bukkit.entity.Snowball;
 import org.bukkit.event.block.TNTPrimeEvent;
 import org.bukkit.event.entity.ProjectileHitEvent;
 import org.bukkit.projectiles.ProjectileSource;
@@ -55,11 +54,16 @@ public final class SpleefEventResolvers {
 
         }
 
-        boolean breakBlocks = ArenaSpleef.getInstance().getMainConfig().shouldProjectilesBreakBlocks();
+        SpleefConfig config = ArenaSpleef.getInstance().getMainConfig();
+        if (config != null && !config.isRegionAllowedAt(event.getHitBlock().getLocation())) {
 
-        if (projectile instanceof Egg egg) {
+            return null;
 
-            if (egg.hasMetadata("splegg") || breakBlocks) {
+        }
+
+        if (projectile instanceof Snowball) {
+
+            if (arena.getGame() == SpleefGame.CLASSIC) {
 
                 return arenaPlayer.getCompetition();
 
@@ -71,7 +75,7 @@ public final class SpleefEventResolvers {
 
         if (projectile instanceof AbstractArrow) {
 
-            if (arena.getGame() == SpleefGame.BOW_SPLEEF || breakBlocks) {
+            if (arena.getGame() == SpleefGame.BOW_SPLEEF) {
 
                 return arenaPlayer.getCompetition();
 
@@ -81,39 +85,7 @@ public final class SpleefEventResolvers {
 
         }
 
-        if (breakBlocks) {
-
-            return arenaPlayer.getCompetition();
-
-        }
-
         return null;
-
-    };
-
-    public static final Function<ThrownEggHatchEvent, LiveCompetition<?>> THROWN_EGG_HATCH = event -> {
-
-        if (!event.getEgg().hasMetadata("splegg")) {
-
-            return null;
-
-        }
-
-        ProjectileSource shooter = event.getEgg().getShooter();
-        if (!(shooter instanceof Player player)) {
-
-            return null;
-
-        }
-
-        ArenaPlayer arenaPlayer = ArenaPlayer.getArenaPlayer(player);
-        if (arenaPlayer == null || !(arenaPlayer.getArena() instanceof SpleefArena)) {
-
-            return null;
-
-        }
-
-        return arenaPlayer.getCompetition();
 
     };
 
@@ -149,6 +121,13 @@ public final class SpleefEventResolvers {
             SpleefMap map = (SpleefMap) spleefCompetition.getMap();
             String worldGuardRegion = map.getWorldGuardRegion();
             if (worldGuardRegion == null || worldGuardRegion.isBlank()) {
+
+                continue;
+
+            }
+
+            SpleefConfig config = ArenaSpleef.getInstance().getMainConfig();
+            if (config != null && !config.isRegionAllowedAt(event.getBlock().getLocation())) {
 
                 continue;
 
