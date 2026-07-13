@@ -17,7 +17,7 @@ java {
 }
 
 /* ----------------------------- Metadata ------------------------------ */
-group = "org.battleplugins.arena"
+group = "net.trueog"
 
 version = "2.0.1-SNAPSHOT"
 
@@ -37,8 +37,6 @@ repositories {
     gradlePluginPortal()
     maven("https://maven.enginehub.org/repo/")
     maven("https://repo.papermc.io/repository/maven-public/")
-    maven("https://repo.battleplugins.org/releases/")
-    maven("https://repo.battleplugins.org/snapshots/")
     maven { url = uri("file://${System.getProperty("user.home")}/.m2/repository") }
     System.getProperty("SELF_MAVEN_LOCAL_REPO")?.let {
         val dir = file(it)
@@ -55,7 +53,6 @@ repositories {
 /* ---------------------------- Dependencies --------------------------- */
 dependencies {
     compileOnly("io.papermc.paper:paper-api:1.19.4-R0.1-SNAPSHOT")
-    compileOnly("org.battleplugins:arena:4.0.0-SNAPSHOT")
     compileOnly("com.sk89q.worldguard:worldguard-bukkit:7.0.8") // Import WorldGuard API.
 }
 

@@ -1,9 +1,22 @@
 name: Spleef-OG
-main: org.battleplugins.arena.spleef.ArenaSpleef
+main: net.trueog.spleefog.SpleefPlugin
 version: ${version}
-description: Classic and Bow Spleef modes for BattleArena WorldGuard regions.
-author: BattlePlugins
-website: https://battleplugins.org
+description: Classic and Bow Spleef in WorldGuard regions.
+author: TrueOG
+website: https://github.com/true-og/Spleef-OG
 api-version: ${apiVersion}
-depend: [BattleArena, WorldGuard]
-softdepend: [GameModeInventories-OG, HorseTp-OG, PetTeleport-OG, PlayerBounties-OG, WorldEdit]
+depend: [WorldGuard]
+softdepend: [MyWorlds, GameModeInventories-OG, PlayerBounties-OG]
+commands:
+  spleef:
+    description: Join, spectate, and manage Spleef arenas.
+    usage: /spleef
+permissions:
+  spleef.play:
+    default: true
+  spleef.spectate:
+    default: true
+  spleef.stats:
+    default: true
+  spleef.admin:
+    default: op

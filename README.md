@@ -1,121 +1,118 @@
 # Spleef-OG
 
-A BattleArena-backed Spleef plugin for Purpur / Paper 1.19.4.
+A standalone Classic and Bow Spleef plugin for Purpur / Paper 1.19.4.
 
-Spleef-OG is maintained for TrueOG-style server-spawn minigames. It runs arenas in WorldGuard regions in the main world, not in MyWorlds world copies.
+Spleef-OG runs multiple concurrent arenas in WorldGuard regions inside normal or MyWorlds-managed worlds. It does not create or copy worlds.
 
-## Supported Modes
-- **Classic Spleef**: players receive a shovel and break configured snow floor layers. Breaking `snow_block` floors grants 4 snowballs; breaking `snow` layers grants snowballs equal to the layer count. Thrown snowballs break configured Spleef layer blocks.
-- **Bow Spleef**: players receive a bow and arrow. Arrows break configured layer blocks, and TNT projectile handling is gated by a configured WorldGuard region.
+## Gameplay
 
-For example configurations, see the [templates](./templates) folder.
+- Classic Spleef gives each player a shovel. Broken snow floors award snowballs, and thrown snowballs break configured floor blocks.
+- Bow Spleef gives each player an infinity flame bow and one arrow. Arrow impacts break configured floor blocks.
+- An arena starts a 20-second countdown as soon as at least two players are waiting. The countdown pauses if fewer than two remain.
+- The last surviving player wins. Matches draw when the configured time limit expires.
+- Waiting players, active players, and spectators have their inventory, location, gamemode, health, experience, effects, flight state, and scoreboard restored when they leave.
+- Recovery snapshots survive plugin or server restarts.
 
-## Region Model
-- Spleef arenas are intended to live in WorldGuard regions in the main `world` near server spawn.
-- `config.yml` defaults `world-whitelist` to `world`. Add your real spawn-world name there if it differs.
-- `region-whitelist` can restrict Spleef to specific WorldGuard region IDs. Leave it empty to allow any region in an allowed world.
-- Arena creation requires standing in a WorldGuard region with `allow-spleef` set to `allow`.
-- Maps can set `worldguard-region` to their region ID. Bow Spleef maps should set it to the region that covers the TNT/layer area.
-- When `region-whitelist` is set, joins, layer resets, block breaks, snowball/arrow block hits, and Bow Spleef TNT handling are limited to whitelisted regions.
-- Spleef-OG does not depend on MyWorlds and does not create per-match world copies.
+Spleef statistics are stored in `plugins/Spleef-OG/stats.yml`. Use `/spleef stats [player]` to see wins, losses, ties, and games played.
 
-Example setup flow:
-```text
-/rg define spleef_classic
-/rg flag spleef_classic allow-spleef allow
-/spleef create classic
-/spleef layer add classic
-/spleef deathregion classic
-```
+## Requirements
 
-For Bow Spleef, also run:
-```text
-/spleef worldguardregion bowspleef spleef_bow
-```
+- Java 17+
+- Purpur / Paper 1.19.4
+- WorldGuard 7
+- MyWorlds is optional. Declaring it as a soft dependency ensures managed worlds load before arena locations are read.
 
-Example `config.yml` whitelist:
+## Configuration
+
+`config.yml` defaults to one allowed world:
+
 ```yaml
 world-whitelist:
   - world
-region-whitelist:
-  - spleef_classic
-  - spleef_bow
 ```
 
-## Compatibility
-- **Server**: Purpur / Paper 1.19.4
-- **Java**: 17+
-- **Depends**: BattleArena 4.0.0-SNAPSHOT, WorldGuard
-- **Soft-depends**: GameModeInventories-OG, HorseTp-OG, PetTeleport-OG, PlayerBounties-OG, WorldEdit
+It also controls the minimum player count, 20-second waiting period, match time limit, victory delay, tools, and scoreboard.
+
+## Arena Setup
+
+Create a WorldGuard region and allow Spleef in it:
+
+```text
+/rg define spleef_classic
+/rg flag spleef_classic allow-spleef allow
+```
+
+Stand inside the region, then configure the arena:
+
+```text
+/spleef create classic classic
+/spleef setwait classic
+/spleef setspectator classic
+/spleef addspawn classic
+/spleef addspawn classic
+/spleef layer add classic
+/spleef deathregion classic
+/spleef info classic
+```
+
+`layer add` and `deathregion` prompt for two block clicks. Layer setup then prompts for Bukkit block data such as `minecraft:snow_block`. Arena definitions are stored in `plugins/Spleef-OG/arenas.yml`.
+
+Use `bow` instead of `classic` in the create or mode command for Bow Spleef.
+
+## Player Commands
+
+| Command | Description |
+|---|---|
+| `/spleef arenas` | Show currently available arenas and their join commands. |
+| `/spleef join` | Show currently available arenas. |
+| `/spleef join <arena>` | Join a named arena. |
+| `/spleef leave` | Leave the current arena or spectator session. |
+| `/spleef spectate <arena>` | Spectate an arena. |
+| `/spleef stats [player]` | Show Spleef statistics. |
+
+## Administration
+
+| Command | Description |
+|---|---|
+| `/spleef create <name> [classic\|bow]` | Bind a new arena to the smallest WorldGuard region containing you. |
+| `/spleef delete <arena>` | Delete an inactive arena. |
+| `/spleef setwait <arena>` | Set its waiting spawn. |
+| `/spleef setspectator <arena>` | Set its spectator spawn. |
+| `/spleef addspawn <arena>` | Add a player spawn. |
+| `/spleef clearspawns <arena>` | Remove all player spawns. |
+| `/spleef layer <add\|remove\|list\|clear> <arena> [index]` | Manage floor layers. |
+| `/spleef deathregion <arena>` | Select the elimination volume. |
+| `/spleef mode <arena> <classic\|bow>` | Change game mode. |
+| `/spleef enable <arena>` | Enable an arena. |
+| `/spleef disable <arena>` | Disable an inactive arena. |
+| `/spleef info <arena>` | Show setup and runtime state. |
+| `/spleef reload` | Reload `config.yml`. |
+
+Player permissions are `spleef.play`, `spleef.spectate`, and `spleef.stats`. Administration uses `spleef.admin`.
 
 ## Integrations
-- **PetTeleport-OG**: pet teleports are suppressed while a player is in a Spleef match. No configuration required; PetTeleport-OG reads `SpleefAPI.isInSpleef`.
-- **HorseTp-OG**: horse teleports are suppressed while a player is in a Spleef match. No configuration required; HorseTp-OG reads `SpleefAPI.isInSpleef`.
-- **PlayerBounties-OG**: bounty claims and new bounty placements are cancelled whenever the claimant, victim, or target is in a Spleef match.
-- **GameModeInventories-OG**: gamemode-specific inventories are preserved while players enter and leave Spleef.
 
-## Commands
-| Command                                       | Description                                         |
-|-----------------------------------------------|-----------------------------------------------------|
-| `/spleef deathregion <map>`                   | Sets the death region for a Spleef arena.           |
-| `/spleef layer add <map>`                     | Adds a floor layer to a Spleef arena.               |
-| `/spleef layer remove <map> <index>`          | Removes a layer from a Spleef arena.                |
-| `/spleef layer clear <map>`                   | Clears all layers from a Spleef arena.              |
-| `/spleef layer index <map> <from> <to>`       | Changes the index of a layer.                       |
-| `/spleef layer list <map>`                    | Lists all layers in a Spleef arena.                 |
-| `/spleef worldguardregion <map> <region>`     | Sets the map WorldGuard region ID.                  |
-
-## Permissions
-| Permission                                   | Command                         |
-|----------------------------------------------|---------------------------------|
-| `battlearena.command.spleef.deathregion`     | `/spleef deathregion`           |
-| `battlearena.command.spleef.layer.add`       | `/spleef layer add`             |
-| `battlearena.command.spleef.layer.remove`    | `/spleef layer remove`          |
-| `battlearena.command.spleef.layer.clear`     | `/spleef layer clear`           |
-| `battlearena.command.spleef.layer.index`     | `/spleef layer index`           |
-| `battlearena.command.spleef.layer.list`      | `/spleef layer list`            |
-| `battlearena.command.spleef.worldguardregion` | `/spleef worldguardregion`      |
+- BattleTracker combat tags prevent joining. Duels and Spleef activity are excluded from BattleTracker's SMP statistics.
+- GameModeInventories-OG is suspended while Spleef owns a player's temporary inventory.
+- HorseTp-OG and PetTeleport-OG suppress teleports while `SpleefAPI.isInSpleef` is true.
+- PlayerBounties-OG claims and placements involving Spleef players are cancelled.
 
 ## API
-Spleef-OG exposes a small Bukkit-native API for other plugins. No BattleArena types on the surface, only `org.bukkit.entity.Player`.
 
-### Check if a player is in a Spleef match
-Java:
 ```java
-import org.battleplugins.arena.spleef.api.SpleefAPI;
+import net.trueog.spleefog.api.SpleefAPI;
 
 if (SpleefAPI.isInSpleef(player)) {
-    // ...
+    // Player is waiting, playing, or spectating.
 }
 ```
 
-Kotlin:
-```kotlin
-import org.battleplugins.arena.spleef.api.SpleefAPI
-
-if (SpleefAPI.isInSpleef(player)) {
-    // ...
-}
-```
-
-### Events
-Both extend `org.bukkit.event.player.PlayerEvent`.
-
-| Event              | Fires when                                | `SpleefAPI.isInSpleef(player)` during event |
-|--------------------|-------------------------------------------|---------------------------------------------|
-| `SpleefJoinEvent`  | Player joins any Spleef-mode competition  | `true`                                      |
-| `SpleefLeaveEvent` | Player leaves any Spleef-mode competition | `false`                                     |
-
-Covers Classic Spleef and Bow Spleef. State flips before the event fires, so listeners observe the post-transition value.
+`SpleefJoinEvent` and `SpleefLeaveEvent` are available in the same package.
 
 ## Building
+
 ```text
 ./gradlew build
 ```
-Output: `build/libs/Spleef-OG-<version>.jar`
 
-## Credits
-Upstream: [BattlePlugins/ArenaSpleef](https://github.com/BattlePlugins/ArenaSpleef). Documentation: [BattleDocs](https://docs.battleplugins.org/books/additional-gamemodes/chapter/spleef).
-
-## License
-Released into the public domain. See `LICENSE`.
+The jar is written to `build/libs`.

@@ -1,22 +1,26 @@
-# -----------------
-# Main configuration for ArenaSpleef
-#
-# Documentation: https://docs.battleplugins.org/books/additional-gamemodes/chapter/spleef
-# Support: https://discord.gg/tMVPVJf
-# GitHub: https://github.com/BattlePlugins/ArenaSpleef
-# -----------------
-config-version: 2.0 # The config version, do not change!
-
-# Worlds where Spleef arenas may be created and where matches may run.
-# Leave empty to allow every world. Names are matched case-insensitively.
+# Worlds where Spleef arenas may be created and matches may run.
+# Spleef never copies worlds; MyWorlds is only used to ensure managed worlds load first.
 world-whitelist:
   - world
 
-# WorldGuard regions where Spleef arenas may be created and matches may modify blocks.
-# Leave empty to allow any region in an allowed world.
-region-whitelist: []
+match:
+  minimum-players: 2
+  waiting-seconds: 20
+  time-limit-seconds: 300
+  victory-seconds: 5
 
-# The tools to use for Spleef.
-shovels:
-  classic: diamond_shovel{display-name=<yellow>Spleef Shovel}
-  bow: bow{display-name=<red><bold>Fire Bow;enchantments=[unbreaking:10,infinity:1,flame:1]}
+items:
+  classic:
+    material: DIAMOND_SHOVEL
+    name: '&eSpleef Shovel'
+  bow:
+    material: BOW
+    name: '&c&lFire Bow'
+    enchantments:
+      ARROW_INFINITE: 1
+      ARROW_FIRE: 1
+      DURABILITY: 10
+
+scoreboard:
+  enabled: true
+  title: '&b&lSPLEEF'
