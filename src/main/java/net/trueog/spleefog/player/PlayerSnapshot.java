@@ -8,6 +8,7 @@ import java.util.Map;
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
+import org.bukkit.World;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.entity.Player;
@@ -22,6 +23,7 @@ public final class PlayerSnapshot {
     private final ItemStack[] storage;
     private final ItemStack[] armor;
     private final ItemStack[] extra;
+    private final ItemStack cursor;
     private final List<PotionEffect> potionEffects;
     private final GameMode gameMode;
     private final float experience;
@@ -38,15 +40,16 @@ public final class PlayerSnapshot {
     private final transient Scoreboard scoreboard;
 
     private PlayerSnapshot(Location location, ItemStack[] storage, ItemStack[] armor, ItemStack[] extra,
-            List<PotionEffect> potionEffects, GameMode gameMode, float experience, int level, int totalExperience,
-            double health, int foodLevel, float saturation, float exhaustion, boolean allowFlight, boolean flying,
-            int fireTicks, float fallDistance, Scoreboard scoreboard)
+            ItemStack cursor, List<PotionEffect> potionEffects, GameMode gameMode, float experience, int level,
+            int totalExperience, double health, int foodLevel, float saturation, float exhaustion, boolean allowFlight,
+            boolean flying, int fireTicks, float fallDistance, Scoreboard scoreboard)
     {
 
         this.location = location;
         this.storage = storage;
         this.armor = armor;
         this.extra = extra;
+        this.cursor = cursor;
         this.potionEffects = potionEffects;
         this.gameMode = gameMode;
         this.experience = experience;
@@ -68,10 +71,17 @@ public final class PlayerSnapshot {
 
         return new PlayerSnapshot(player.getLocation().clone(), clone(player.getInventory().getStorageContents()),
                 clone(player.getInventory().getArmorContents()), clone(player.getInventory().getExtraContents()),
-                new ArrayList<>(player.getActivePotionEffects()), player.getGameMode(), player.getExp(),
-                player.getLevel(), player.getTotalExperience(), player.getHealth(), player.getFoodLevel(),
-                player.getSaturation(), player.getExhaustion(), player.getAllowFlight(), player.isFlying(),
-                player.getFireTicks(), player.getFallDistance(), player.getScoreboard());
+                player.getItemOnCursor().clone(), new ArrayList<>(player.getActivePotionEffects()),
+                player.getGameMode(), player.getExp(), player.getLevel(), player.getTotalExperience(),
+                player.getHealth(), player.getFoodLevel(), player.getSaturation(), player.getExhaustion(),
+                player.getAllowFlight(), player.isFlying(), player.getFireTicks(), player.getFallDistance(),
+                player.getScoreboard());
+
+    }
+
+    public Location location() {
+
+        return this.location == null ? null : this.location.clone();
 
     }
 
@@ -80,6 +90,10 @@ public final class PlayerSnapshot {
         player.getInventory().setStorageContents(clone(this.storage));
         player.getInventory().setArmorContents(clone(this.armor));
         player.getInventory().setExtraContents(clone(this.extra));
+        // Restored explicitly: closing the inventory on entry would otherwise have
+        // thrown the carried stack on the
+        // ground back on the SMP.
+        player.setItemOnCursor(this.cursor == null ? null : this.cursor.clone());
         player.updateInventory();
 
         for (PotionEffect effect : player.getActivePotionEffects()) {
@@ -104,11 +118,35 @@ public final class PlayerSnapshot {
         player.setFallDistance(this.fallDistance);
         player.setScoreboard(
                 this.scoreboard == null ? Bukkit.getScoreboardManager().getMainScoreboard() : this.scoreboard);
-        if (this.location != null && this.location.getWorld() != null) {
+        Location destination = safeDestination(this.location);
+        if (destination != null) {
 
-            player.teleport(this.location);
+            player.teleport(destination);
 
         }
+
+    }
+
+    // Falls back to a world spawn when the recorded world is gone. Skipping the
+    // teleport instead would leave the
+    // player standing in the arena with their own inventory back, which is worse
+    // than landing at spawn.
+    private static Location safeDestination(Location location) {
+
+        if (location != null && location.getWorld() != null) {
+
+            return location;
+
+        }
+
+        World fallback = Bukkit.getWorld("world");
+        if (fallback == null) {
+
+            fallback = Bukkit.getWorlds().isEmpty() ? null : Bukkit.getWorlds().get(0);
+
+        }
+
+        return fallback == null ? null : fallback.getSpawnLocation();
 
     }
 
@@ -118,6 +156,7 @@ public final class PlayerSnapshot {
         yaml.set(path + ".storage", Arrays.asList(this.storage));
         yaml.set(path + ".armor", Arrays.asList(this.armor));
         yaml.set(path + ".extra", Arrays.asList(this.extra));
+        yaml.set(path + ".cursor", this.cursor);
         yaml.set(path + ".game-mode", this.gameMode.name());
         yaml.set(path + ".experience", this.experience);
         yaml.set(path + ".level", this.level);
@@ -167,7 +206,8 @@ public final class PlayerSnapshot {
 
         }
 
-        return new PlayerSnapshot(location, storage, armor, extra, effects, gameMode,
+        ItemStack cursor = yaml.getItemStack(path + ".cursor");
+        return new PlayerSnapshot(location, storage, armor, extra, cursor, effects, gameMode,
                 (float) yaml.getDouble(path + ".experience"), yaml.getInt(path + ".level"),
                 yaml.getInt(path + ".total-experience"), yaml.getDouble(path + ".health", 20.0D),
                 yaml.getInt(path + ".food-level", 20), (float) yaml.getDouble(path + ".saturation", 5.0D),

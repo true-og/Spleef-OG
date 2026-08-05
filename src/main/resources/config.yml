@@ -1,5 +1,5 @@
 # Worlds where Spleef arenas may be created and matches may run.
-# Spleef never copies worlds; MyWorlds is only used to ensure managed worlds load first.
+# Arenas live in ordinary worlds and are bounded by a WorldGuard region; no world is ever created or copied.
 world-whitelist:
   - world
 
@@ -9,6 +9,100 @@ match:
   time-limit-seconds: 300
   victory-seconds: 5
 
+protection:
+  # Cancel a teleport that would take a player out of the arena region while they are in a match.
+  # Anything landing inside the region is allowed, so the plugin's own teleports are unaffected.
+  block-teleports: true
+  # When true, only whitelisted-commands may be used in an arena. When false, blacklisted-commands is used instead.
+  block-all-commands: false
+  # Only consulted when block-all-commands is true.
+  whitelisted-commands:
+    - msg
+    - r
+    - reply
+    - tell
+    - whisper
+    - list
+  # Only consulted when block-all-commands is false.
+  # Namespaced spellings and registered aliases of these are matched too, so 'home' also covers 'essentials:home'.
+  # Multi-word entries such as 'union home' match the start of what the player typed.
+  # /spleef is always allowed so a player can never be trapped in an arena.
+  # If ProAntiTab runs in whitelist mode, it has already removed most commands; this list covers what survives.
+  blacklisted-commands:
+    # Anything that moves a player. block-teleports already refuses the teleport itself; these stop the attempt.
+    - spawn
+    - spawnback
+    - hub
+    - home
+    - homes
+    - sethome
+    - delhome
+    - back
+    - tp
+    - tpa
+    - tpahere
+    - tpaccept
+    - tpdeny
+    - tpacancel
+    - warp
+    - wild
+    - rtp
+    - union home
+    - clan home
+    # Anything that can kill a waiting player outside the damage event.
+    - suicide
+    - kill
+    # Other minigames. Two of them owning one player's inventory at once corrupts both.
+    - duel
+    - queue
+    - q
+    - splegg
+    - sp
+    - hbjoin
+    - hbspectate
+    - spectate
+    - bb
+    - buildbattle
+    - buildb
+    # Anything handing out items, currency, or a different gamemode mid-match.
+    - gamemode
+    - gmi
+    - gmic
+    - noclip
+    - nc
+    - cosmetics
+    - gmc
+    - gms
+    - gma
+    - gmsp
+    - heal
+    - feed
+    - fly
+    - god
+    - kit
+    - enderchest
+    - ec
+    - pv
+    - vault
+    - shop
+    - quickshop
+    - chestshop
+    - cshop
+    - qs
+    - buy
+    - as
+    - areashop
+    - pay
+    - deposit
+    - withdraw
+    - compress
+    - autocompress
+
+performance:
+  # Upper bound on floor blocks restored per tick. An arena that needs more finishes over the following ticks
+  # instead of stalling the server.
+  reset-blocks-per-tick: 8192
+
 items:
   classic:
     material: DIAMOND_SHOVEL
@@ -16,10 +110,12 @@ items:
   bow:
     material: BOW
     name: '&c&lFire Bow'
+    # Flame is deliberately absent: the block removal is done by the plugin, and a flaming arrow that leaves the
+    # arena sets light to whatever it hits. Modern names are used because the legacy ones resolve on only one of
+    # the two lookup paths and are removed in later versions.
     enchantments:
-      ARROW_INFINITE: 1
-      ARROW_FIRE: 1
-      DURABILITY: 10
+      infinity: 1
+      unbreaking: 3
 
 scoreboard:
   enabled: true

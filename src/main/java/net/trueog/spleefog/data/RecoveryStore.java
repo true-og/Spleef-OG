@@ -2,10 +2,14 @@ package net.trueog.spleefog.data;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import net.trueog.spleefog.SpleefPlugin;
+import net.trueog.spleefog.api.SpleefAPI;
 import net.trueog.spleefog.player.PlayerSnapshot;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -28,6 +32,7 @@ public final class RecoveryStore {
 
         PlayerSnapshot snapshot = PlayerSnapshot.capture(player);
         this.snapshots.put(player.getUniqueId(), snapshot);
+        SpleefAPI.markRecoveryPending(player.getUniqueId());
         this.save();
         return snapshot;
 
@@ -42,6 +47,7 @@ public final class RecoveryStore {
     public PlayerSnapshot remove(UUID playerId) {
 
         PlayerSnapshot value = this.snapshots.remove(playerId);
+        SpleefAPI.clearRecoveryPending(playerId);
         this.save();
         return value;
 
@@ -69,6 +75,7 @@ public final class RecoveryStore {
 
                 UUID playerId = UUID.fromString(key);
                 this.snapshots.put(playerId, PlayerSnapshot.read(yaml, "players." + key));
+                SpleefAPI.markRecoveryPending(playerId);
 
             } catch (RuntimeException ex) {
 
@@ -89,9 +96,25 @@ public final class RecoveryStore {
 
         }
 
+        // Saved through a temporary file and moved into place. A truncating in-place
+        // write leaves a window where
+        // a crash produces an unparseable file, and an unparseable file loads as empty,
+        // discarding the stored
+        // inventory of every player currently in an arena.
+        File temporary = new File(this.file.getParentFile(), this.file.getName() + ".tmp");
         try {
 
-            yaml.save(this.file);
+            yaml.save(temporary);
+            try {
+
+                Files.move(temporary.toPath(), this.file.toPath(), StandardCopyOption.REPLACE_EXISTING,
+                        StandardCopyOption.ATOMIC_MOVE);
+
+            } catch (AtomicMoveNotSupportedException ex) {
+
+                Files.move(temporary.toPath(), this.file.toPath(), StandardCopyOption.REPLACE_EXISTING);
+
+            }
 
         } catch (IOException ex) {
 

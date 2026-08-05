@@ -23,21 +23,42 @@ public final class SpleefFlags {
             StateFlag flag = new StateFlag(ALLOW_SPLEEF, false);
             registry.register(flag);
             allowSpleefFlag = flag;
+            return;
 
         } catch (FlagConflictException conflict) {
 
-            Flag<?> existing = registry.get(ALLOW_SPLEEF);
-            if (existing instanceof StateFlag stateFlag) {
+            adopt(plugin, registry, "another plugin already owns it");
 
-                allowSpleefFlag = stateFlag;
+        } catch (IllegalStateException locked) {
 
-            } else {
-
-                plugin.getLogger().severe("WorldGuard flag '" + ALLOW_SPLEEF + "' has an incompatible type.");
-
-            }
+            // WorldGuard locks its registry once it enables, so a mid-session reload cannot
+            // register.
+            adopt(plugin, registry, "the WorldGuard flag registry is locked");
 
         }
+
+    }
+
+    private static void adopt(SpleefPlugin plugin, FlagRegistry registry, String reason) {
+
+        Flag<?> existing = registry.get(ALLOW_SPLEEF);
+        if (existing instanceof StateFlag stateFlag) {
+
+            allowSpleefFlag = stateFlag;
+            return;
+
+        }
+
+        allowSpleefFlag = null;
+        if (existing == null) {
+
+            plugin.getLogger().severe("Could not register WorldGuard flag '" + ALLOW_SPLEEF + "' because " + reason
+                    + ". Restart the server instead of reloading Spleef-OG; arena creation is disabled until then.");
+            return;
+
+        }
+
+        plugin.getLogger().severe("WorldGuard flag '" + ALLOW_SPLEEF + "' has an incompatible type.");
 
     }
 

@@ -1,6 +1,7 @@
 package net.trueog.spleefog.arena;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -9,6 +10,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import net.kyori.adventure.text.Component;
 import net.trueog.spleefog.Messages;
 import net.trueog.spleefog.SpleefConfig;
 import net.trueog.spleefog.SpleefPlugin;
@@ -19,57 +21,48 @@ import net.trueog.spleefog.api.SpleefLeaveEvent;
 import net.trueog.spleefog.data.ArenaRepository;
 import net.trueog.spleefog.data.RecoveryStore;
 import net.trueog.spleefog.data.StatsRepository;
+import net.trueog.spleefog.hook.CombatHook;
 import net.trueog.spleefog.hook.GameModeInventoriesHook;
-import net.trueog.spleefog.hook.BattleTrackerHook;
+import net.trueog.spleefog.hook.ScoreboardOGHook;
 import net.trueog.spleefog.model.ArenaState;
 import net.trueog.spleefog.model.GameType;
 import net.trueog.spleefog.model.SpleefArena;
-import net.trueog.spleefog.model.SpleefLayer;
 import net.trueog.spleefog.player.PlayerSnapshot;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.attribute.Attribute;
-import org.bukkit.block.Block;
-import org.bukkit.block.data.BlockData;
-import org.bukkit.block.data.type.Snow;
-import org.bukkit.entity.AbstractArrow;
 import org.bukkit.entity.Player;
-import org.bukkit.entity.Projectile;
-import org.bukkit.entity.Snowball;
-import org.bukkit.entity.TNTPrimed;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
-import org.bukkit.event.block.BlockBreakEvent;
-import org.bukkit.event.block.BlockPlaceEvent;
-import org.bukkit.event.block.TNTPrimeEvent;
-import org.bukkit.event.entity.EntityDamageEvent;
-import org.bukkit.event.entity.EntityExplodeEvent;
-import org.bukkit.event.entity.EntityPickupItemEvent;
-import org.bukkit.event.entity.FoodLevelChangeEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
-import org.bukkit.event.entity.ProjectileHitEvent;
-import org.bukkit.event.inventory.InventoryClickEvent;
-import org.bukkit.event.player.PlayerDropItemEvent;
-import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
-import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.potion.PotionEffect;
-import org.bukkit.projectiles.ProjectileSource;
-import org.bukkit.scoreboard.Criteria;
-import org.bukkit.scoreboard.DisplaySlot;
-import org.bukkit.scoreboard.Objective;
-import org.bukkit.scoreboard.Scoreboard;
 import org.bukkit.scheduler.BukkitTask;
 
+// Owns the arenas, who is in them, and the player state Spleef borrows while they are.
+//
+// The event handling is split across three collaborators so that each has one job and its coverage can be read off
+// in one place: Confinement keeps players inside an arena, Protection stops anything touching them or being touched
+// by them, and ArenaWorld owns blocks and floor restoration. What stays here is the session registry and the
+// deliberate placement of players: entering, starting, ending, respawning, and being put back afterwards.
 public final class ArenaManager implements Listener {
+
+    public static final String BYPASS_TELEPORT = "spleef.bypass.teleport";
+    public static final String BYPASS_COMMANDS = "spleef.bypass.commands";
+    private static final long RECOVERY_DELAY_TICKS = 5L;
+    private static final long RECOVERY_CONFIRM_TICKS = 20L;
+    // Far enough that ordinary walking in the second after login never trips it,
+    // close enough that being sent to a
+    // spawn point always does.
+    private static final double RECOVERY_DRIFT_SQUARED = 16.0D * 16.0D;
+    private static final long ENTRY_COOLDOWN_MILLIS = 2000L;
 
     private final SpleefPlugin plugin;
     private final SpleefConfig config;
@@ -78,11 +71,17 @@ public final class ArenaManager implements Listener {
     private final StatsRepository stats;
     private final RecoveryStore recovery;
     private final GameModeInventoriesHook gameModeInventories;
-    private final BattleTrackerHook battleTracker;
+    private final CombatHook combat;
+    private final ScoreboardOGHook scoreboardOG;
+    private final ArenaWorld arenaWorld;
+    private final Confinement confinement;
+    private final Protection protection;
     private final Map<String, ArenaSession> sessions = new HashMap<>();
     private final Map<UUID, ArenaSession> playerSessions = new HashMap<>();
     private final Map<UUID, ArenaSession> pendingRespawns = new HashMap<>();
     private final Set<UUID> forcedDeaths = new HashSet<>();
+    private final Set<UUID> restoring = new HashSet<>();
+    private final Map<UUID, Long> lastEntry = new HashMap<>();
     private BukkitTask tickTask;
 
     public ArenaManager(SpleefPlugin plugin, SpleefConfig config, WorldGuardSupport worldGuard,
@@ -97,7 +96,11 @@ public final class ArenaManager implements Listener {
         this.stats = stats;
         this.recovery = recovery;
         this.gameModeInventories = gameModeInventories;
-        this.battleTracker = new BattleTrackerHook(plugin);
+        this.combat = new CombatHook(plugin);
+        this.scoreboardOG = new ScoreboardOGHook(plugin);
+        this.arenaWorld = new ArenaWorld(plugin, this, worldGuard);
+        this.confinement = new Confinement(this);
+        this.protection = new Protection(this);
         for (SpleefArena arena : arenaRepository.load()) {
 
             this.sessions.put(normalize(arena.name()), new ArenaSession(this, arena));
@@ -109,24 +112,42 @@ public final class ArenaManager implements Listener {
     public void start() {
 
         Bukkit.getPluginManager().registerEvents(this, this.plugin);
+        Bukkit.getPluginManager().registerEvents(this.confinement, this.plugin);
+        Bukkit.getPluginManager().registerEvents(this.protection, this.plugin);
+        Bukkit.getPluginManager().registerEvents(this.arenaWorld, this.plugin);
+        this.arenaWorld.start();
+
         for (Player player : Bukkit.getOnlinePlayers()) {
 
             this.restoreRecovery(player);
 
         }
 
-        for (ArenaSession session : this.sessions.values()) {
+        this.resetAllArenas();
+        this.tickTask = Bukkit.getScheduler().runTaskTimer(this.plugin, this::tickSessions, 20L, 20L);
 
-            if (this.isArenaRuntimeValid(session.arena())) {
+    }
 
-                this.resetLayers(session.arena());
+    private void tickSessions() {
+
+        for (ArenaSession session : new ArrayList<>(this.sessions.values())) {
+
+            try {
+
+                session.tick();
+
+            } catch (RuntimeException ex) {
+
+                // Without this a single bad arena stops every arena after it in the list from
+                // ever ticking again,
+                // freezing their countdowns and leaving their players stuck in a match that
+                // cannot end.
+                this.plugin.getLogger().log(java.util.logging.Level.SEVERE,
+                        "Spleef arena " + session.arena().name() + " failed to tick.", ex);
 
             }
 
         }
-
-        this.tickTask = Bukkit.getScheduler().runTaskTimer(this.plugin,
-                () -> new ArrayList<>(this.sessions.values()).forEach(ArenaSession::tick), 20L, 20L);
 
     }
 
@@ -138,15 +159,28 @@ public final class ArenaManager implements Listener {
 
         }
 
+        this.arenaWorld.shutdown();
         for (ArenaSession session : new ArrayList<>(this.sessions.values())) {
 
-            session.shutdown();
+            try {
+
+                session.shutdown();
+
+            } catch (RuntimeException ex) {
+
+                // One bad arena must not strand the players waiting in every other arena.
+                this.plugin.getLogger().log(java.util.logging.Level.SEVERE,
+                        "Could not cleanly shut down Spleef arena " + session.arena().name() + ".", ex);
+
+            }
 
         }
 
         this.playerSessions.clear();
         this.pendingRespawns.clear();
         this.forcedDeaths.clear();
+        this.restoring.clear();
+        this.lastEntry.clear();
         this.stats.save();
         this.gameModeInventories.releaseAll();
 
@@ -178,7 +212,7 @@ public final class ArenaManager implements Listener {
 
     public boolean isInCombat(Player player) {
 
-        return this.battleTracker.isInCombat(player);
+        return this.combat.isInCombat(player);
 
     }
 
@@ -191,6 +225,47 @@ public final class ArenaManager implements Listener {
     public List<ArenaSession> availableSessions() {
 
         return this.sessions().stream().filter(ArenaSession::canJoin).toList();
+
+    }
+
+    Collection<ArenaSession> allSessions() {
+
+        return this.sessions.values();
+
+    }
+
+    // Region ids are only unique within a world, so the world has to be compared
+    // too. Without this an arena in the
+    // main world reacts to blocks broken in an identically named region of a build
+    // or staging world.
+    boolean isInsideArena(SpleefArena arena, Location location) {
+
+        return location != null && location.getWorld() != null
+                && location.getWorld().getName().equalsIgnoreCase(arena.worldName())
+                && this.worldGuard.isInside(location, arena.regionId());
+
+    }
+
+    // Set when the plugin kills a player itself, so the damage guard lets that one
+    // death through.
+    void markForcedDeath(UUID playerId) {
+
+        this.forcedDeaths.add(playerId);
+
+    }
+
+    boolean isForcedDeath(UUID playerId) {
+
+        return this.forcedDeaths.contains(playerId);
+
+    }
+
+    // True while this plugin is the reason the player's gamemode is changing,
+    // either because they are in a session
+    // or because their pre-Spleef state is being put back.
+    boolean ownsGameModeOf(UUID playerId) {
+
+        return this.playerSessions.containsKey(playerId) || this.restoring.contains(playerId);
 
     }
 
@@ -222,6 +297,7 @@ public final class ArenaManager implements Listener {
 
         }
 
+        this.warnIfRegionAllowsBuilding(player.getWorld(), region.id());
         SpleefArena arena = new SpleefArena(name, player.getWorld().getName(), region.id(), region.bounds(), gameType);
         this.sessions.put(normalize(name), new ArenaSession(this, arena));
         this.saveArenas();
@@ -239,6 +315,7 @@ public final class ArenaManager implements Listener {
         }
 
         this.sessions.remove(normalize(arena.name()));
+        this.arenaWorld.forget(arena.name());
         this.saveArenas();
         return true;
 
@@ -247,6 +324,52 @@ public final class ArenaManager implements Listener {
     public void saveArenas() {
 
         this.arenaRepository.save(this.sessions.values().stream().map(ArenaSession::arena).toList());
+
+    }
+
+    // Re-reads arenas.yml. Refused outright while any arena has players in it,
+    // because swapping the definitions out
+    // from under a running match would strand everyone in it.
+    public ReloadResult reloadArenas() {
+
+        List<String> busy = this.sessions.values().stream().filter(ArenaSession::isActive)
+                .map(session -> session.arena().name()).sorted().toList();
+        if (!busy.isEmpty()) {
+
+            return new ReloadResult(false, busy, 0);
+
+        }
+
+        for (ArenaSession session : this.sessions.values()) {
+
+            session.releaseScoreboard(Bukkit.getScoreboardManager().getMainScoreboard());
+
+        }
+
+        this.arenaWorld.forgetAll();
+        this.sessions.clear();
+        for (SpleefArena arena : this.arenaRepository.load()) {
+
+            this.sessions.put(normalize(arena.name()), new ArenaSession(this, arena));
+
+        }
+
+        this.resetAllArenas();
+        return new ReloadResult(true, List.of(), this.sessions.size());
+
+    }
+
+    private void resetAllArenas() {
+
+        for (ArenaSession session : this.sessions.values()) {
+
+            if (this.isArenaRuntimeValid(session.arena())) {
+
+                this.resetLayers(session.arena());
+
+            }
+
+        }
 
     }
 
@@ -266,21 +389,103 @@ public final class ArenaManager implements Listener {
 
     }
 
+    // Spleef only re-allows the specific block breaks a match needs; everything
+    // else in the arena is protected by
+    // WorldGuard denying non-members. If the region does not deny them, players can
+    // dig the floor between matches
+    // and build in it during one, and nothing in this plugin will stop them.
+    private void warnIfRegionAllowsBuilding(World world, String regionId) {
+
+        if (!this.worldGuard.allowsNonMemberBuilding(world, regionId)) {
+
+            return;
+
+        }
+
+        this.plugin.getLogger().warning("WorldGuard region '" + regionId
+                + "' lets non-members build. Spleef relies on that region denying them, so players will be able to "
+                + "dig the arena floor outside matches. Remove the build/passthrough allow flag on that region.");
+
+    }
+
+    void resetLayers(SpleefArena arena) {
+
+        this.arenaWorld.resetLayers(arena);
+
+    }
+
     boolean enter(Player player, ArenaSession session, boolean spectator, Location destination) {
 
-        if (destination == null || destination.getWorld() == null || this.recovery.contains(player.getUniqueId())) {
+        if (destination == null || destination.getWorld() == null || player.isDead()
+                || this.recovery.contains(player.getUniqueId()))
+        {
 
             return false;
 
         }
 
+        Long last = this.lastEntry.get(player.getUniqueId());
+        long now = System.currentTimeMillis();
+        if (last != null && now - last < ENTRY_COOLDOWN_MILLIS) {
+
+            // Each entry snapshots the inventory and rewrites recovery.yml, so an
+            // unthrottled join/leave macro is a
+            // cheap way to make the server do synchronous disk work every tick.
+            Messages.send(player, Messages.bad("Wait a moment before joining Spleef again."));
+            return false;
+
+        }
+
+        this.lastEntry.put(player.getUniqueId(), now);
         this.recovery.capture(player);
         this.gameModeInventories.suspend(player);
+        this.scoreboardOG.close(player);
         this.playerSessions.put(player.getUniqueId(), session);
         SpleefAPI.markJoined(player);
-        this.preparePlayer(player, spectator ? GameMode.SPECTATOR : GameMode.ADVENTURE, destination);
+        if (!this.preparePlayer(player, spectator ? GameMode.SPECTATOR : GameMode.ADVENTURE, destination)) {
+
+            // Something refused the teleport. Undo the entry completely instead of
+            // stranding the player in the
+            // world with a cleared inventory and a session they cannot leave.
+            this.playerSessions.remove(player.getUniqueId());
+            SpleefAPI.markLeft(player);
+            this.restoreAfterFailedEntry(player);
+            return false;
+
+        }
+
         Bukkit.getPluginManager().callEvent(new SpleefJoinEvent(player, session.arena().name(), spectator));
         return true;
+
+    }
+
+    private void restoreAfterFailedEntry(Player player) {
+
+        PlayerSnapshot snapshot = this.recovery.get(player.getUniqueId());
+        this.restoring.add(player.getUniqueId());
+        try {
+
+            if (snapshot != null) {
+
+                snapshot.restore(player);
+                this.recovery.remove(player.getUniqueId());
+
+            }
+
+        } catch (RuntimeException ex) {
+
+            this.plugin.getLogger().log(java.util.logging.Level.SEVERE,
+                    "Could not undo a failed Spleef entry for " + player.getName() + "; recovery data was retained.",
+                    ex);
+
+        } finally {
+
+            this.restoring.remove(player.getUniqueId());
+
+        }
+
+        this.releaseGameModeInventories(player);
+        this.scoreboardOG.reopenLater(player);
 
     }
 
@@ -302,6 +507,7 @@ public final class ArenaManager implements Listener {
         PlayerSnapshot snapshot = this.recovery.get(player.getUniqueId());
         if (snapshot != null && !player.isDead()) {
 
+            this.restoring.add(player.getUniqueId());
             try {
 
                 snapshot.restore(player);
@@ -312,6 +518,10 @@ public final class ArenaManager implements Listener {
                 this.plugin.getLogger().log(java.util.logging.Level.SEVERE,
                         "Could not restore " + player.getName() + " after Spleef; recovery data was retained.", ex);
 
+            } finally {
+
+                this.restoring.remove(player.getUniqueId());
+
             }
 
         } else {
@@ -320,7 +530,36 @@ public final class ArenaManager implements Listener {
 
         }
 
-        Bukkit.getScheduler().runTask(this.plugin, () -> this.gameModeInventories.release(player));
+        this.releaseGameModeInventories(player);
+        this.scoreboardOG.reopenLater(player);
+
+    }
+
+    // Hands the player back to GameModeInventories-OG a tick later so its gamemode
+    // listener has already seen the
+    // restore, but never through the scheduler while the plugin is disabling; that
+    // throws and would abort shutdown.
+    private void releaseGameModeInventories(Player player) {
+
+        if (!this.plugin.isEnabled()) {
+
+            this.gameModeInventories.release(player);
+            return;
+
+        }
+
+        Bukkit.getScheduler().runTask(this.plugin, () -> {
+
+            // The player may have re-joined an arena in the meantime; releasing now would
+            // leave the rest of that
+            // match running with the suspension lifted.
+            if (!this.playerSessions.containsKey(player.getUniqueId())) {
+
+                this.gameModeInventories.release(player);
+
+            }
+
+        });
 
     }
 
@@ -357,54 +596,46 @@ public final class ArenaManager implements Listener {
 
     }
 
-    void resetLayers(SpleefArena arena) {
-
-        World world = Bukkit.getWorld(arena.worldName());
-        if (world == null) {
-
-            return;
-
-        }
-
-        for (SpleefLayer layer : arena.layers()) {
-
-            for (int x = layer.bounds().minX(); x <= layer.bounds().maxX(); x++) {
-
-                for (int y = layer.bounds().minY(); y <= layer.bounds().maxY(); y++) {
-
-                    for (int z = layer.bounds().minZ(); z <= layer.bounds().maxZ(); z++) {
-
-                        Location location = new Location(world, x, y, z);
-                        if (this.worldGuard.isInside(location, arena.regionId())) {
-
-                            world.getBlockAt(x, y, z).setBlockData(layer.blockData(), false);
-
-                        }
-
-                    }
-
-                }
-
-            }
-
-        }
-
-    }
-
+    // Refreshes the arena sidebar in place. The board is built once per session, so
+    // a tick only rewrites the line
+    // text; players are never handed a replacement scoreboard unless they do not
+    // have this one yet.
     void updateScoreboards(ArenaSession session) {
 
         if (!this.config.scoreboardEnabled()) {
 
+            session.releaseScoreboard(Bukkit.getScoreboardManager().getMainScoreboard());
             return;
 
         }
 
-        for (UUID playerId : session.allPresent()) {
+        Set<UUID> present = session.allPresent();
+        if (present.isEmpty()) {
+
+            return;
+
+        }
+
+        ArenaScoreboard board = session.scoreboard(this.config.scoreboardTitle());
+        board.title(this.config.scoreboardTitle());
+        board.line(0, Messages.body().append(Component.text("Arena: ")).append(Messages.name(session.arena().name()))
+                .build());
+        board.line(1, Messages.body().append(Component.text("Mode: "))
+                .append(Messages.name(display(session.arena().gameType()))).build());
+        board.line(2, Messages.body().append(Component.text("State: ")).append(Messages.name(display(session.state())))
+                .build());
+        int count = session.state() == ArenaState.IN_GAME ? session.aliveCount() : session.playerCount();
+        board.line(3, Messages.body().append(Component.text("Players: "))
+                .append(Messages.value(Integer.toString(count))).build());
+        String timer = session.state() == ArenaState.WAITING ? "Waiting" : formatTime(session.secondsRemaining());
+        board.line(4, Messages.body().append(Component.text("Time: ")).append(Messages.value(timer)).build());
+
+        for (UUID playerId : present) {
 
             Player player = Bukkit.getPlayer(playerId);
-            if (player != null) {
+            if (player != null && player.getScoreboard() != board.board()) {
 
-                player.setScoreboard(this.createScoreboard(session));
+                player.setScoreboard(board.board());
 
             }
 
@@ -412,27 +643,13 @@ public final class ArenaManager implements Listener {
 
     }
 
-    private Scoreboard createScoreboard(ArenaSession session) {
+    // Returns false when the teleport was refused. The inventory has already been
+    // cleared by then, so a caller that
+    // cannot proceed has to put the player back rather than leave them empty-handed
+    // out in the world.
+    private boolean preparePlayer(Player player, GameMode gameMode, Location destination) {
 
-        Scoreboard board = Bukkit.getScoreboardManager().getNewScoreboard();
-        Objective objective = board.registerNewObjective("spleef", Criteria.DUMMY, this.config.scoreboardTitle());
-        objective.setDisplaySlot(DisplaySlot.SIDEBAR);
-        objective.getScore(ChatColor.GRAY + "Arena: " + ChatColor.WHITE + session.arena().name()).setScore(5);
-        objective.getScore(ChatColor.GRAY + "Mode: " + ChatColor.WHITE + display(session.arena().gameType()))
-                .setScore(4);
-        objective.getScore(ChatColor.GRAY + "State: " + ChatColor.WHITE + display(session.state())).setScore(3);
-        objective
-                .getScore(ChatColor.GRAY + "Players: " + ChatColor.AQUA
-                        + (session.state() == ArenaState.IN_GAME ? session.aliveCount() : session.playerCount()))
-                .setScore(2);
-        String timer = session.state() == ArenaState.WAITING ? "Waiting" : formatTime(session.secondsRemaining());
-        objective.getScore(ChatColor.GRAY + "Time: " + ChatColor.AQUA + timer).setScore(1);
-        return board;
-
-    }
-
-    private void preparePlayer(Player player, GameMode gameMode, Location destination) {
-
+        player.setItemOnCursor(null);
         player.closeInventory();
         player.getInventory().clear();
         player.getInventory().setArmorContents(new ItemStack[4]);
@@ -450,210 +667,90 @@ public final class ArenaManager implements Listener {
         player.setSaturation(5.0F);
         player.setAllowFlight(gameMode == GameMode.SPECTATOR);
         player.setGameMode(gameMode);
-        player.teleport(destination);
+        return player.teleport(destination);
 
     }
 
     private void restoreRecovery(Player player) {
 
-        if (this.playerSessions.containsKey(player.getUniqueId())) {
+        // Offline: restoring onto a detached Player writes into an entity that will
+        // never be saved, and the
+        // recovery entry would then be deleted, losing the only surviving copy of the
+        // real inventory.
+        // Dead: setHealth on a player sitting on the death screen leaves them unable to
+        // respawn at all. The respawn
+        // handler picks them up instead.
+        if (this.playerSessions.containsKey(player.getUniqueId()) || !player.isOnline() || player.isDead()) {
 
             return;
 
         }
 
         PlayerSnapshot snapshot = this.recovery.get(player.getUniqueId());
-        if (snapshot != null) {
+        if (snapshot == null) {
 
-            this.gameModeInventories.suspend(player);
-            try {
+            return;
 
-                snapshot.restore(player);
-                this.recovery.remove(player.getUniqueId());
-                Messages.send(player, "&7Your pre-Spleef state was recovered after a restart.");
+        }
 
-            } catch (RuntimeException ex) {
+        this.gameModeInventories.suspend(player);
+        this.restoring.add(player.getUniqueId());
+        try {
 
-                this.plugin.getLogger().log(java.util.logging.Level.SEVERE,
-                        "Could not recover " + player.getName() + " after a restart; recovery data was retained.", ex);
+            Location expected = snapshot.location();
+            snapshot.restore(player);
+            this.recovery.remove(player.getUniqueId());
+            this.scoreboardOG.reopenLater(player);
+            this.confirmRecoveryLocation(player, expected);
+            Messages.send(player, Messages.grey("Your pre-Spleef state was recovered after a restart."));
 
-            } finally {
+        } catch (RuntimeException ex) {
 
-                Bukkit.getScheduler().runTask(this.plugin, () -> this.gameModeInventories.release(player));
+            this.plugin.getLogger().log(java.util.logging.Level.SEVERE,
+                    "Could not recover " + player.getName() + " after a restart; recovery data was retained.", ex);
+
+        } finally {
+
+            this.restoring.remove(player.getUniqueId());
+            this.releaseGameModeInventories(player);
+
+        }
+
+    }
+
+    // A spawn-management plugin may teleport a joining player asynchronously, and
+    // that teleport can resolve after
+    // the restore has already run. Rather than guess a delay long enough to lose
+    // that race, the restored position
+    // is checked once a second later and reapplied if something moved the player
+    // somewhere else entirely.
+    private void confirmRecoveryLocation(Player player, Location expected) {
+
+        if (expected == null || expected.getWorld() == null || !this.plugin.isEnabled()) {
+
+            return;
+
+        }
+
+        Bukkit.getScheduler().runTaskLater(this.plugin, () -> {
+
+            if (!player.isOnline() || player.isDead() || this.playerSessions.containsKey(player.getUniqueId())) {
+
+                return;
 
             }
 
-        }
+            Location now = player.getLocation();
+            if (now.getWorld() == expected.getWorld() && now.distanceSquared(expected) <= RECOVERY_DRIFT_SQUARED) {
 
-    }
+                return;
 
-    private ArenaSession activeSessionAt(Location location) {
+            }
 
-        return this.sessions.values().stream().filter(ArenaSession::isActive)
-                .filter(session -> this.worldGuard.isInside(location, session.arena().regionId())).findFirst()
-                .orElse(null);
+            player.teleport(expected);
+            Messages.send(player, Messages.grey("Returned you to where you were before Spleef."));
 
-    }
-
-    private SpleefLayer layerAt(SpleefArena arena, Location location) {
-
-        if (!this.worldGuard.isInside(location, arena.regionId())) {
-
-            return null;
-
-        }
-
-        return arena.layers().stream().filter(layer -> layer.bounds().contains(location)).findFirst().orElse(null);
-
-    }
-
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
-    public void onBlockBreak(BlockBreakEvent event) {
-
-        Player player = event.getPlayer();
-        ArenaSession session = this.session(player);
-        ArenaSession regionSession = this.activeSessionAt(event.getBlock().getLocation());
-        if (session == null && regionSession == null) {
-
-            return;
-
-        }
-
-        event.setCancelled(true);
-        if (session == null || session.state() != ArenaState.IN_GAME || !session.isAlive(player.getUniqueId())
-                || session.arena().gameType() != GameType.CLASSIC)
-        {
-
-            return;
-
-        }
-
-        SpleefLayer layer = this.layerAt(session.arena(), event.getBlock().getLocation());
-        if (layer == null) {
-
-            return;
-
-        }
-
-        event.setCancelled(false);
-        event.setDropItems(false);
-        int snowballs = snowballCount(event.getBlock());
-        if (snowballs > 0) {
-
-            player.getInventory().addItem(new ItemStack(Material.SNOWBALL, snowballs));
-
-        }
-
-    }
-
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
-    public void onBlockPlace(BlockPlaceEvent event) {
-
-        if (this.session(event.getPlayer()) != null) {
-
-            event.setCancelled(true);
-
-        }
-
-    }
-
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
-    public void onInteract(PlayerInteractEvent event) {
-
-        ArenaSession session = this.session(event.getPlayer());
-        if (session != null && session.state() != ArenaState.IN_GAME) {
-
-            event.setCancelled(true);
-
-        }
-
-    }
-
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
-    public void onDrop(PlayerDropItemEvent event) {
-
-        if (this.session(event.getPlayer()) != null) {
-
-            event.setCancelled(true);
-
-        }
-
-    }
-
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
-    public void onPickup(EntityPickupItemEvent event) {
-
-        if (event.getEntity() instanceof Player player && this.session(player) != null) {
-
-            event.setCancelled(true);
-
-        }
-
-    }
-
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
-    public void onInventoryClick(InventoryClickEvent event) {
-
-        if (event.getWhoClicked() instanceof Player player && this.session(player) != null) {
-
-            event.setCancelled(true);
-
-        }
-
-    }
-
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
-    public void onDamage(EntityDamageEvent event) {
-
-        if (!(event.getEntity() instanceof Player player) || this.session(player) == null) {
-
-            return;
-
-        }
-
-        if (!this.forcedDeaths.contains(player.getUniqueId())) {
-
-            event.setCancelled(true);
-
-        }
-
-    }
-
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
-    public void onFood(FoodLevelChangeEvent event) {
-
-        if (event.getEntity() instanceof Player player && this.session(player) != null) {
-
-            event.setCancelled(true);
-
-        }
-
-    }
-
-    @EventHandler(priority = EventPriority.LOW)
-    public void onMove(PlayerMoveEvent event) {
-
-        if (event.getTo() == null || sameBlock(event.getFrom(), event.getTo())) {
-
-            return;
-
-        }
-
-        ArenaSession session = this.session(event.getPlayer());
-        if (session == null || !session.isAlive(event.getPlayer().getUniqueId())) {
-
-            return;
-
-        }
-
-        if (session.arena().deathRegion().contains(event.getTo())
-                || !this.worldGuard.isInside(event.getTo(), session.arena().regionId()))
-        {
-
-            this.forcedDeaths.add(event.getPlayer().getUniqueId());
-            event.getPlayer().setHealth(0.0D);
-
-        }
+        }, RECOVERY_CONFIRM_TICKS);
 
     }
 
@@ -662,7 +759,7 @@ public final class ArenaManager implements Listener {
 
         Player player = event.getEntity();
         ArenaSession session = this.session(player);
-        if (session == null || !session.isAlive(player.getUniqueId())) {
+        if (session == null) {
 
             return;
 
@@ -674,7 +771,16 @@ public final class ArenaManager implements Listener {
         event.deathMessage(null);
         this.forcedDeaths.remove(player.getUniqueId());
         this.pendingRespawns.put(player.getUniqueId(), session);
-        session.eliminate(player);
+        // Anything that bypasses the damage event, such as /kill or a plugin setting
+        // health directly, can kill a
+        // waiting player or a spectator. They still have to keep their kit and respawn
+        // inside the arena.
+        if (session.isAlive(player.getUniqueId())) {
+
+            session.eliminate(player);
+
+        }
+
         Bukkit.getScheduler().runTask(this.plugin, () -> {
 
             if (player.isOnline() && player.isDead()) {
@@ -687,7 +793,11 @@ public final class ArenaManager implements Listener {
 
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST)
+    // At MONITOR because several plugins write the respawn location at HIGHEST and
+    // ordering between them is decided
+    // by plugin load order. The event cannot be cancelled, so having the last word
+    // here is safe.
+    @EventHandler(priority = EventPriority.MONITOR)
     public void onRespawn(PlayerRespawnEvent event) {
 
         ArenaSession session = this.pendingRespawns.remove(event.getPlayer().getUniqueId());
@@ -723,70 +833,6 @@ public final class ArenaManager implements Listener {
 
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
-    public void onProjectileHit(ProjectileHitEvent event) {
-
-        Block block = event.getHitBlock();
-        Projectile projectile = event.getEntity();
-        ProjectileSource source = projectile.getShooter();
-        if (block == null || !(source instanceof Player player)) {
-
-            return;
-
-        }
-
-        ArenaSession session = this.session(player);
-        if (session == null || !session.isAlive(player.getUniqueId()) || session.state() != ArenaState.IN_GAME) {
-
-            return;
-
-        }
-
-        boolean validProjectile = session.arena().gameType() == GameType.CLASSIC && projectile instanceof Snowball
-                || session.arena().gameType() == GameType.BOW && projectile instanceof AbstractArrow;
-        if (!validProjectile || this.layerAt(session.arena(), block.getLocation()) == null) {
-
-            return;
-
-        }
-
-        block.setType(Material.AIR, false);
-        projectile.remove();
-
-    }
-
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
-    public void onTntPrime(TNTPrimeEvent event) {
-
-        ArenaSession session = this.activeSessionAt(event.getBlock().getLocation());
-        if (session == null || session.state() != ArenaState.IN_GAME || session.arena().gameType() != GameType.BOW
-                || this.layerAt(session.arena(), event.getBlock().getLocation()) == null)
-        {
-
-            return;
-
-        }
-
-        event.setCancelled(true);
-        event.getBlock().setType(Material.AIR, false);
-        TNTPrimed visual = event.getBlock().getWorld().spawn(event.getBlock().getLocation().toCenterLocation(),
-                TNTPrimed.class, tnt -> tnt.setFuseTicks(Integer.MAX_VALUE));
-        Bukkit.getScheduler().runTaskLater(this.plugin, visual::remove, 20L);
-
-    }
-
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
-    public void onExplosion(EntityExplodeEvent event) {
-
-        event.blockList().removeIf(block -> {
-
-            ArenaSession session = this.activeSessionAt(block.getLocation());
-            return session != null && this.layerAt(session.arena(), block.getLocation()) != null;
-
-        });
-
-    }
-
     @EventHandler(priority = EventPriority.MONITOR)
     public void onQuit(PlayerQuitEvent event) {
 
@@ -799,36 +845,17 @@ public final class ArenaManager implements Listener {
 
     }
 
+    // Deliberately delayed rather than run on the next tick. A spawn-management
+    // plugin may be teleporting this
+    // player asynchronously from its own join handler, and an async teleport that
+    // lands after the restore would
+    // leave the player at spawn instead of where they stood before they joined
+    // Spleef.
     @EventHandler(priority = EventPriority.MONITOR)
     public void onJoin(PlayerJoinEvent event) {
 
-        Bukkit.getScheduler().runTask(this.plugin, () -> this.restoreRecovery(event.getPlayer()));
-
-    }
-
-    private static int snowballCount(Block block) {
-
-        if (block.getType() == Material.SNOW_BLOCK) {
-
-            return 4;
-
-        }
-
-        BlockData data = block.getBlockData();
-        if (data instanceof Snow snow) {
-
-            return snow.getLayers();
-
-        }
-
-        return 0;
-
-    }
-
-    private static boolean sameBlock(Location first, Location second) {
-
-        return first.getBlockX() == second.getBlockX() && first.getBlockY() == second.getBlockY()
-                && first.getBlockZ() == second.getBlockZ();
+        Bukkit.getScheduler().runTaskLater(this.plugin, () -> this.restoreRecovery(event.getPlayer()),
+                RECOVERY_DELAY_TICKS);
 
     }
 
@@ -845,13 +872,16 @@ public final class ArenaManager implements Listener {
 
     }
 
-    private static String normalize(String name) {
+    static String normalize(String name) {
 
         return name.toLowerCase(Locale.ROOT);
 
     }
 
     public record CreateResult(boolean success, String message, SpleefArena arena) {
+    }
+
+    public record ReloadResult(boolean success, List<String> busyArenas, int arenaCount) {
     }
 
 }

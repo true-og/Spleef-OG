@@ -1,8 +1,10 @@
 package net.trueog.spleefog;
 
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
-import org.bukkit.ChatColor;
+import java.util.Set;
+import net.kyori.adventure.text.Component;
 import org.bukkit.Material;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.enchantments.Enchantment;
@@ -68,15 +70,73 @@ public final class SpleefConfig {
 
     }
 
+    public boolean blockTeleports() {
+
+        return this.plugin.getConfig().getBoolean("protection.block-teleports", true);
+
+    }
+
+    public boolean blockAllCommands() {
+
+        return this.plugin.getConfig().getBoolean("protection.block-all-commands", false);
+
+    }
+
+    public Set<String> whitelistedCommands() {
+
+        return this.commandSet("protection.whitelisted-commands");
+
+    }
+
+    public Set<String> blacklistedCommands() {
+
+        return this.commandSet("protection.blacklisted-commands");
+
+    }
+
+    // Reads a command list into a lower-case set. Entries keep their spaces so
+    // multi-word entries such as union home
+    // can be matched against the front of what the player typed.
+    private Set<String> commandSet(String path) {
+
+        Set<String> result = new LinkedHashSet<>();
+        for (String value : this.plugin.getConfig().getStringList(path)) {
+
+            if (value == null || value.isBlank()) {
+
+                continue;
+
+            }
+
+            String normalized = value.trim().toLowerCase(Locale.ROOT).replaceAll("^/+", "").replaceAll("\\s+", " ");
+            if (!normalized.isEmpty()) {
+
+                result.add(normalized);
+
+            }
+
+        }
+
+        return result;
+
+    }
+
+    // How many blocks of an arena floor may be restored in a single tick.
+    public int resetBlocksPerTick() {
+
+        return Math.max(256, this.plugin.getConfig().getInt("performance.reset-blocks-per-tick", 8192));
+
+    }
+
     public boolean scoreboardEnabled() {
 
         return this.plugin.getConfig().getBoolean("scoreboard.enabled", true);
 
     }
 
-    public String scoreboardTitle() {
+    public Component scoreboardTitle() {
 
-        return color(this.plugin.getConfig().getString("scoreboard.title", "&b&lSPLEEF"));
+        return Messages.parse(this.plugin.getConfig().getString("scoreboard.title", "<aqua><bold>SPLEEF"));
 
     }
 
@@ -102,12 +162,26 @@ public final class SpleefConfig {
         }
 
         Material material = Material.matchMaterial(section.getString("material", fallback.name()));
-        ItemStack item = new ItemStack(material == null ? fallback : material);
+        if (material == null || !material.isItem()) {
+
+            this.plugin.getLogger().warning("Config value " + path + ".material is not a usable item; falling back to "
+                    + fallback.name() + ".");
+            material = fallback;
+
+        }
+
+        ItemStack item = new ItemStack(material);
         ItemMeta meta = item.getItemMeta();
+        if (meta == null) {
+
+            return item;
+
+        }
+
         String name = section.getString("name");
         if (name != null) {
 
-            meta.setDisplayName(color(name));
+            meta.displayName(Messages.parseItemName(name));
 
         }
 
@@ -116,12 +190,7 @@ public final class SpleefConfig {
 
             for (String key : enchantments.getKeys(false)) {
 
-                Enchantment enchantment = Enchantment.getByName(key.toUpperCase(Locale.ROOT));
-                if (enchantment != null) {
-
-                    meta.addEnchant(enchantment, enchantments.getInt(key), true);
-
-                }
+                this.applyEnchantment(meta, path, key, enchantments.getInt(key));
 
             }
 
@@ -133,9 +202,25 @@ public final class SpleefConfig {
     }
 
     @SuppressWarnings("deprecation")
-    public static String color(String message) {
+    private void applyEnchantment(ItemMeta meta, String path, String key, int level) {
 
-        return ChatColor.translateAlternateColorCodes('&', message == null ? "" : message);
+        String name = key.toUpperCase(Locale.ROOT);
+        Enchantment enchantment = Enchantment.getByName(name);
+        if (enchantment == null) {
+
+            enchantment = Enchantment
+                    .getByKey(org.bukkit.NamespacedKey.minecraft(key.toLowerCase(Locale.ROOT).replace(' ', '_')));
+
+        }
+
+        if (enchantment == null) {
+
+            this.plugin.getLogger().warning("Unknown enchantment '" + key + "' in " + path + "; skipping it.");
+            return;
+
+        }
+
+        meta.addEnchant(enchantment, Math.max(1, level), true);
 
     }
 

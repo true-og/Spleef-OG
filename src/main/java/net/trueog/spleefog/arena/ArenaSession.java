@@ -6,13 +6,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import net.kyori.adventure.text.Component;
 import net.trueog.spleefog.Messages;
 import net.trueog.spleefog.model.ArenaState;
 import net.trueog.spleefog.model.SpleefArena;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
+import org.bukkit.scoreboard.Scoreboard;
 
 public final class ArenaSession {
+
+    private static final int SCOREBOARD_LINES = 5;
 
     private final ArenaManager manager;
     private final SpleefArena arena;
@@ -24,6 +28,7 @@ public final class ArenaSession {
     private final Map<UUID, String> playerNames = new LinkedHashMap<>();
     private ArenaState state = ArenaState.WAITING;
     private int secondsRemaining;
+    private ArenaScoreboard scoreboard;
 
     ArenaSession(ArenaManager manager, SpleefArena arena) {
 
@@ -110,7 +115,7 @@ public final class ArenaSession {
 
         if (this.manager.isInCombat(player)) {
 
-            Messages.send(player, "&cYou cannot join Spleef while combat tagged.");
+            Messages.send(player, Messages.bad("You cannot join Spleef while combat tagged."));
             return false;
 
         }
@@ -123,18 +128,30 @@ public final class ArenaSession {
 
         this.players.add(player.getUniqueId());
         this.playerNames.put(player.getUniqueId(), player.getName());
-        this.broadcast(
-                "&f" + player.getName() + " &7joined. &b(" + this.players.size() + "/" + this.arena.capacity() + ")");
+        this.broadcastCount(player.getName(), "joined");
+        // Applied now rather than on the next arena tick, so the player is not left
+        // with no sidebar for a second
+        // after the other one has already been closed for them.
+        this.manager.updateScoreboards(this);
         return true;
 
     }
 
     public boolean spectate(Player player) {
 
-        if (!this.arena.enabled() || !this.arena.isComplete() || this.state == ArenaState.ENDING
+        // Requiring somebody to already be there stops an idle arena being used as a
+        // free spectator-mode pass.
+        if (!this.arena.enabled() || !this.arena.isComplete() || this.state == ArenaState.ENDING || !this.isActive()
                 || this.manager.session(player) != null || !this.manager.isArenaRuntimeValid(this.arena))
         {
 
+            return false;
+
+        }
+
+        if (this.manager.isInCombat(player)) {
+
+            Messages.send(player, Messages.bad("You cannot spectate Spleef while combat tagged."));
             return false;
 
         }
@@ -146,6 +163,7 @@ public final class ArenaSession {
         }
 
         this.spectators.add(player.getUniqueId());
+        this.manager.updateScoreboards(this);
         return true;
 
     }
@@ -171,8 +189,7 @@ public final class ArenaSession {
         this.manager.exit(player, this);
         if (participant && (this.state == ArenaState.WAITING || this.state == ArenaState.COUNTDOWN)) {
 
-            this.broadcast(
-                    "&f" + player.getName() + " &7left. &b(" + this.players.size() + "/" + this.arena.capacity() + ")");
+            this.broadcastCount(player.getName(), "left");
 
         }
 
@@ -194,7 +211,9 @@ public final class ArenaSession {
         }
 
         this.eliminated.add(playerId);
-        this.broadcast("&f" + player.getName() + " &7was eliminated. &b" + this.alive.size() + " &7remain.");
+        this.broadcast(Messages.body().append(Messages.name(player.getName()))
+                .append(Component.text(" was eliminated. ")).append(Messages.value(Integer.toString(this.alive.size())))
+                .append(Component.text(" remain.")).build());
         this.checkForWinner();
 
     }
@@ -242,7 +261,7 @@ public final class ArenaSession {
 
         this.state = ArenaState.COUNTDOWN;
         this.secondsRemaining = this.manager.config().waitingSeconds();
-        this.broadcast("&7Match starts in &b" + this.secondsRemaining + " seconds&7.");
+        this.broadcastCountdown();
 
     }
 
@@ -252,8 +271,9 @@ public final class ArenaSession {
 
             this.state = ArenaState.WAITING;
             this.secondsRemaining = 0;
-            this.broadcast("&7Countdown paused until at least &b" + this.manager.config().minimumPlayers()
-                    + " players &7are waiting.");
+            this.broadcast(Messages.body().append(Component.text("Countdown paused until at least "))
+                    .append(Messages.value(this.manager.config().minimumPlayers() + " players"))
+                    .append(Component.text(" are waiting.")).build());
             return;
 
         }
@@ -268,7 +288,7 @@ public final class ArenaSession {
         this.secondsRemaining--;
         if (this.secondsRemaining <= 5 || this.secondsRemaining == 10 || this.secondsRemaining == 15) {
 
-            this.broadcast("&7Match starts in &b" + this.secondsRemaining + " seconds&7.");
+            this.broadcastCountdown();
 
         }
 
@@ -305,7 +325,7 @@ public final class ArenaSession {
 
         }
 
-        this.broadcast("&aGo!");
+        this.broadcast(Messages.good("Go!"));
 
     }
 
@@ -321,7 +341,8 @@ public final class ArenaSession {
         this.secondsRemaining--;
         if (this.secondsRemaining <= 10 || this.secondsRemaining == 30 || this.secondsRemaining == 60) {
 
-            this.broadcast("&b" + this.secondsRemaining + " seconds &7remaining.");
+            this.broadcast(Messages.body().append(Messages.value(this.secondsRemaining + " seconds"))
+                    .append(Component.text(" remaining.")).build());
 
         }
 
@@ -395,15 +416,15 @@ public final class ArenaSession {
         if (winner != null) {
 
             String winnerName = this.playerNames.getOrDefault(winner, "Unknown");
-            this.broadcast("&a" + winnerName + " won the match!");
+            this.broadcast(Messages.good(winnerName + " won the match!"));
 
         } else if (timedOut && !this.alive.isEmpty()) {
 
-            this.broadcast("&eTime expired. The match is a draw.");
+            this.broadcast(Messages.warn("Time expired. The match is a draw."));
 
         } else {
 
-            this.broadcast("&eThe match ended without a winner.");
+            this.broadcast(Messages.warn("The match ended without a winner."));
 
         }
 
@@ -431,6 +452,7 @@ public final class ArenaSession {
 
     private void clearRuntime() {
 
+        this.releaseScoreboard(Bukkit.getScoreboardManager().getMainScoreboard());
         this.players.clear();
         this.spectators.clear();
         this.alive.clear();
@@ -439,6 +461,45 @@ public final class ArenaSession {
         this.playerNames.clear();
         this.state = ArenaState.WAITING;
         this.secondsRemaining = 0;
+
+    }
+
+    // Returns this arena's sidebar, building it on first use so idle arenas cost
+    // nothing.
+    ArenaScoreboard scoreboard(Component title) {
+
+        if (this.scoreboard == null) {
+
+            this.scoreboard = new ArenaScoreboard(title, SCOREBOARD_LINES);
+
+        }
+
+        return this.scoreboard;
+
+    }
+
+    // Moves anyone still looking at the arena sidebar onto fallback, then frees it.
+    void releaseScoreboard(Scoreboard fallback) {
+
+        if (this.scoreboard == null) {
+
+            return;
+
+        }
+
+        for (UUID playerId : this.allPresent()) {
+
+            Player player = Bukkit.getPlayer(playerId);
+            if (player != null && player.getScoreboard() == this.scoreboard.board() && fallback != null) {
+
+                player.setScoreboard(fallback);
+
+            }
+
+        }
+
+        this.scoreboard.unregister();
+        this.scoreboard = null;
 
     }
 
@@ -462,7 +523,7 @@ public final class ArenaSession {
 
     }
 
-    private void broadcast(String message) {
+    private void broadcast(Component message) {
 
         for (UUID playerId : this.allPresent()) {
 
@@ -474,6 +535,20 @@ public final class ArenaSession {
             }
 
         }
+
+    }
+
+    private void broadcastCount(String playerName, String verb) {
+
+        this.broadcast(Messages.body().append(Messages.name(playerName)).append(Component.text(" " + verb + ". "))
+                .append(Messages.value("(" + this.players.size() + "/" + this.arena.capacity() + ")")).build());
+
+    }
+
+    private void broadcastCountdown() {
+
+        this.broadcast(Messages.body().append(Component.text("Match starts in "))
+                .append(Messages.value(this.secondsRemaining + " seconds")).append(Component.text(".")).build());
 
     }
 

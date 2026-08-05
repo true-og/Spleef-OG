@@ -4,8 +4,11 @@ import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import net.trueog.spleefog.SpleefPlugin;
 import net.trueog.spleefog.model.BlockBounds;
 import net.trueog.spleefog.model.GameType;
@@ -20,6 +23,8 @@ public final class ArenaRepository {
 
     private final SpleefPlugin plugin;
     private final File file;
+    // Names this plugin successfully read and is therefore allowed to rewrite.
+    private final Set<String> managedKeys = new LinkedHashSet<>();
 
     public ArenaRepository(SpleefPlugin plugin) {
 
@@ -31,6 +36,8 @@ public final class ArenaRepository {
     public List<SpleefArena> load() {
 
         List<SpleefArena> arenas = new ArrayList<>();
+        Set<String> seen = new LinkedHashSet<>();
+        this.managedKeys.clear();
         YamlConfiguration yaml = YamlConfiguration.loadConfiguration(this.file);
         ConfigurationSection root = yaml.getConfigurationSection("arenas");
         if (root == null) {
@@ -44,16 +51,33 @@ public final class ArenaRepository {
             ConfigurationSection section = root.getConfigurationSection(key);
             try {
 
+                if (!seen.add(key.toLowerCase(Locale.ROOT))) {
+
+                    // Two keys differing only in case would collide in memory and the survivor's
+                    // save would delete
+                    // both from disk. Leave the duplicate alone rather than silently destroying a
+                    // real arena.
+                    this.plugin.getLogger().warning("Ignoring Spleef arena '" + key
+                            + "': another arena already uses that name. Rename one of them in arenas.yml.");
+                    continue;
+
+                }
+
                 SpleefArena arena = this.readArena(key, section);
                 if (arena != null) {
 
                     arenas.add(arena);
+                    this.managedKeys.add(key);
 
                 }
 
             } catch (RuntimeException ex) {
 
-                this.plugin.getLogger().warning("Could not load Spleef arena '" + key + "': " + ex.getMessage());
+                // Deliberately left out of managedKeys: an arena this plugin could not read is
+                // one it must not
+                // rewrite, or the next save would erase a definition the operator still wants.
+                this.plugin.getLogger().warning("Could not load Spleef arena '" + key + "': " + ex.getMessage()
+                        + " Its definition is being kept in arenas.yml untouched.");
 
             }
 
@@ -65,8 +89,19 @@ public final class ArenaRepository {
 
     public void save(Collection<SpleefArena> arenas) {
 
-        YamlConfiguration yaml = new YamlConfiguration();
+        // Start from what is on disk so entries this plugin does not manage survive
+        // verbatim.
+        YamlConfiguration yaml = YamlConfiguration.loadConfiguration(this.file);
+        for (String key : this.managedKeys) {
+
+            yaml.set("arenas." + key, null);
+
+        }
+
+        this.managedKeys.clear();
         for (SpleefArena arena : arenas) {
+
+            this.managedKeys.add(arena.name());
 
             String path = "arenas." + arena.name();
             yaml.set(path + ".world", arena.worldName());

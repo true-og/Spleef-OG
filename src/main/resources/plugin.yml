@@ -6,11 +6,11 @@ author: TrueOG
 website: https://github.com/true-og/Spleef-OG
 api-version: ${apiVersion}
 depend: [WorldGuard]
-softdepend: [MyWorlds, GameModeInventories-OG, PlayerBounties-OG]
+softdepend: [GameModeInventories-OG, PlayerBounties-OG, EternalCombat-OG, BattleTracker, Scoreboard-OG, Spawn-OG]
 commands:
   spleef:
     description: Join, spectate, and manage Spleef arenas.
-    usage: /spleef
+    usage: /spleef help
 permissions:
   spleef.play:
     default: true
@@ -20,3 +20,9 @@ permissions:
     default: true
   spleef.admin:
     default: op
+  spleef.bypass.teleport:
+    description: Teleport out of a Spleef arena while still in a match.
+    default: false
+  spleef.bypass.commands:
+    description: Use blocked commands while in a Spleef arena.
+    default: false

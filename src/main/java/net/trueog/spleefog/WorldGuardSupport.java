@@ -4,6 +4,7 @@ import com.sk89q.worldedit.bukkit.BukkitAdapter;
 import com.sk89q.worldedit.math.BlockVector3;
 import com.sk89q.worldguard.WorldGuard;
 import com.sk89q.worldguard.protection.ApplicableRegionSet;
+import com.sk89q.worldguard.protection.flags.Flags;
 import com.sk89q.worldguard.protection.flags.StateFlag;
 import com.sk89q.worldguard.protection.managers.RegionManager;
 import com.sk89q.worldguard.protection.regions.ProtectedRegion;
@@ -36,8 +37,16 @@ public final class WorldGuardSupport {
 
     public boolean regionExists(World world, String regionId) {
 
+        return this.region(world, regionId) != null;
+
+    }
+
+    // Resolves the region once so bulk work can test containment without a manager
+    // lookup per block.
+    public ProtectedRegion region(World world, String regionId) {
+
         RegionManager manager = this.manager(world);
-        return manager != null && manager.getRegion(regionId) != null;
+        return manager == null || regionId == null ? null : manager.getRegion(regionId);
 
     }
 
@@ -60,6 +69,16 @@ public final class WorldGuardSupport {
         RegionManager manager = this.manager(world);
         ProtectedRegion region = manager == null ? null : manager.getRegion(regionId);
         return region == null ? null : this.binding(region).bounds();
+
+    }
+
+    // True when the region's own flags let anyone build, meaning it is not
+    // providing the protection Spleef assumes.
+    public boolean allowsNonMemberBuilding(World world, String regionId) {
+
+        ProtectedRegion region = this.region(world, regionId);
+        return region != null && (region.getFlag(Flags.BUILD) == StateFlag.State.ALLOW
+                || region.getFlag(Flags.PASSTHROUGH) == StateFlag.State.ALLOW);
 
     }
 

@@ -37,7 +37,7 @@ public final class SpleefPlugin extends JavaPlugin {
         this.arenaManager = new ArenaManager(this, config, worldGuard, arenaRepository, stats, recovery,
                 gameModeInventories);
 
-        ArenaEditor editor = new ArenaEditor(this, this.arenaManager);
+        ArenaEditor editor = new ArenaEditor(this.arenaManager);
         this.getServer().getPluginManager().registerEvents(editor, this);
         SpleefCommand commandHandler = new SpleefCommand(this, this.arenaManager, editor);
         PluginCommand command = this.getCommand("spleef");
