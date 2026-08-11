@@ -18,7 +18,7 @@ import org.bukkit.event.vehicle.VehicleEnterEvent;
 import org.bukkit.event.vehicle.VehicleMoveEvent;
 import org.spigotmc.event.entity.EntityMountEvent;
 
-// Keeps a player who is in a session inside their arena.
+// Keeps a player who is in a session inside their arena, and everyone else out of one.
 //
 // This class exists because containment kept springing leaks in the same way: the decision was right and an event
 // class had simply never been registered. Portals and vehicles were both missed that way. So every route by which a
@@ -153,6 +153,13 @@ public final class Confinement implements Listener {
 
         Player player = event.getPlayer();
         ArenaSession session = this.manager.session(player);
+        if (session == null) {
+
+            this.guardArenaEntry(event, player);
+            return;
+
+        }
+
         if (!this.guardsTeleports(player, session) || this.decide(session, player, event.getTo()) == Outcome.ALLOW) {
 
             return;
@@ -162,6 +169,39 @@ public final class Confinement implements Listener {
         event.setCancelled(true);
         Messages.send(player, Messages.body().append(Component.text("You cannot teleport out of Spleef. Use "))
                 .append(Messages.value("/spleef leave")).append(Component.text(" first.")).build());
+
+    }
+
+    // The other half of containment: someone with no session teleporting into a
+    // live
+    // arena (a /tpa to a player in a match) lands unguarded, since every guard in
+    // Protection keys on having a session. Turn them away at the boundary instead.
+    private void guardArenaEntry(PlayerTeleportEvent event, Player player) {
+
+        if (player.hasPermission(ArenaManager.BYPASS_TELEPORT) || player.hasPermission(ArenaManager.ADMIN)
+                || this.manager.isRestoring(player.getUniqueId()))
+        {
+
+            return;
+
+        }
+
+        for (ArenaSession candidate : this.manager.sessions()) {
+
+            if (!candidate.arena().enabled() || !this.manager.isInsideArena(candidate.arena(), event.getTo())) {
+
+                continue;
+
+            }
+
+            event.setCancelled(true);
+            Messages.send(player,
+                    Messages.body().append(Component.text("That is a Spleef arena. Use "))
+                            .append(Messages.value("/spleef join " + candidate.arena().name()))
+                            .append(Component.text(" to play.")).build());
+            return;
+
+        }
 
     }
 

@@ -22,12 +22,14 @@ import net.trueog.spleefog.data.ArenaRepository;
 import net.trueog.spleefog.data.RecoveryStore;
 import net.trueog.spleefog.data.StatsRepository;
 import net.trueog.spleefog.hook.CombatHook;
+import net.trueog.spleefog.hook.EssentialsHook;
 import net.trueog.spleefog.hook.GameModeInventoriesHook;
 import net.trueog.spleefog.hook.ScoreboardOGHook;
 import net.trueog.spleefog.model.ArenaState;
 import net.trueog.spleefog.model.GameType;
 import net.trueog.spleefog.model.SpleefArena;
 import net.trueog.spleefog.player.PlayerSnapshot;
+import net.trueog.spleefog.player.ThrownProjectileTracker;
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
@@ -54,6 +56,7 @@ import org.bukkit.scheduler.BukkitTask;
 // deliberate placement of players: entering, starting, ending, respawning, and being put back afterwards.
 public final class ArenaManager implements Listener {
 
+    public static final String ADMIN = "spleef.admin";
     public static final String BYPASS_TELEPORT = "spleef.bypass.teleport";
     public static final String BYPASS_COMMANDS = "spleef.bypass.commands";
     private static final long RECOVERY_DELAY_TICKS = 5L;
@@ -76,6 +79,8 @@ public final class ArenaManager implements Listener {
     private final ArenaWorld arenaWorld;
     private final Confinement confinement;
     private final Protection protection;
+    private final ThrownProjectileTracker thrownProjectiles;
+    private final EssentialsHook essentials;
     private final Map<String, ArenaSession> sessions = new HashMap<>();
     private final Map<UUID, ArenaSession> playerSessions = new HashMap<>();
     private final Map<UUID, ArenaSession> pendingRespawns = new HashMap<>();
@@ -97,10 +102,12 @@ public final class ArenaManager implements Listener {
         this.recovery = recovery;
         this.gameModeInventories = gameModeInventories;
         this.combat = new CombatHook(plugin);
+        this.essentials = new EssentialsHook();
         this.scoreboardOG = new ScoreboardOGHook(plugin);
         this.arenaWorld = new ArenaWorld(plugin, this, worldGuard);
         this.confinement = new Confinement(this);
         this.protection = new Protection(this);
+        this.thrownProjectiles = new ThrownProjectileTracker();
         for (SpleefArena arena : arenaRepository.load()) {
 
             this.sessions.put(normalize(arena.name()), new ArenaSession(this, arena));
@@ -115,6 +122,7 @@ public final class ArenaManager implements Listener {
         Bukkit.getPluginManager().registerEvents(this.confinement, this.plugin);
         Bukkit.getPluginManager().registerEvents(this.protection, this.plugin);
         Bukkit.getPluginManager().registerEvents(this.arenaWorld, this.plugin);
+        Bukkit.getPluginManager().registerEvents(this.thrownProjectiles, this.plugin);
         this.arenaWorld.start();
 
         for (Player player : Bukkit.getOnlinePlayers()) {
@@ -181,6 +189,7 @@ public final class ArenaManager implements Listener {
         this.forcedDeaths.clear();
         this.restoring.clear();
         this.lastEntry.clear();
+        this.thrownProjectiles.clear();
         this.stats.save();
         this.gameModeInventories.releaseAll();
 
@@ -266,6 +275,15 @@ public final class ArenaManager implements Listener {
     boolean ownsGameModeOf(UUID playerId) {
 
         return this.playerSessions.containsKey(playerId) || this.restoring.contains(playerId);
+
+    }
+
+    // True while this plugin is putting a player's pre-Spleef state back. Their
+    // stored location may sit inside an arena, so that teleport must not be
+    // mistaken for an outsider walking in.
+    boolean isRestoring(UUID playerId) {
+
+        return this.restoring.contains(playerId);
 
     }
 
@@ -437,7 +455,15 @@ public final class ArenaManager implements Listener {
         }
 
         this.lastEntry.put(player.getUniqueId(), now);
-        this.recovery.capture(player);
+        PlayerSnapshot snapshot = this.recovery.capture(player);
+        // A trident still in flight is pulled out of the world and rides the snapshot
+        // home; a pearl in flight is dropped so it cannot fire a teleport mid-match.
+        if (this.thrownProjectiles.stashOnEntry(player, snapshot)) {
+
+            this.recovery.persist();
+
+        }
+
         this.gameModeInventories.suspend(player);
         this.scoreboardOG.close(player);
         this.playerSessions.put(player.getUniqueId(), session);
@@ -468,6 +494,7 @@ public final class ArenaManager implements Listener {
             if (snapshot != null) {
 
                 snapshot.restore(player);
+                this.essentials.setBackLocation(player, snapshot.location());
                 this.recovery.remove(player.getUniqueId());
 
             }
@@ -511,6 +538,7 @@ public final class ArenaManager implements Listener {
             try {
 
                 snapshot.restore(player);
+                this.essentials.setBackLocation(player, snapshot.location());
                 this.recovery.remove(player.getUniqueId());
 
             } catch (RuntimeException ex) {
@@ -699,6 +727,7 @@ public final class ArenaManager implements Listener {
 
             Location expected = snapshot.location();
             snapshot.restore(player);
+            this.essentials.setBackLocation(player, snapshot.location());
             this.recovery.remove(player.getUniqueId());
             this.scoreboardOG.reopenLater(player);
             this.confirmRecoveryLocation(player, expected);

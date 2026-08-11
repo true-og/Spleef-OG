@@ -38,6 +38,13 @@ public final class RecoveryStore {
 
     }
 
+    // Writes the current snapshots back out after one of them was changed in place.
+    public void persist() {
+
+        this.save();
+
+    }
+
     public PlayerSnapshot get(UUID playerId) {
 
         return this.snapshots.get(playerId);

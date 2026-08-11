@@ -6,7 +6,7 @@ author: TrueOG
 website: https://github.com/true-og/Spleef-OG
 api-version: ${apiVersion}
 depend: [WorldGuard]
-softdepend: [GameModeInventories-OG, PlayerBounties-OG, EternalCombat-OG, BattleTracker, Scoreboard-OG, Spawn-OG]
+softdepend: [GameModeInventories-OG, PlayerBounties-OG, EternalCombat-OG, BattleTracker, Scoreboard-OG, Spawn-OG, Essentials-OG, Essentials]
 commands:
   spleef:
     description: Join, spectate, and manage Spleef arenas.

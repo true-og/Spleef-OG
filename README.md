@@ -11,8 +11,10 @@ Spleef-OG runs multiple concurrent arenas in WorldGuard regions inside ordinary 
 - An arena starts a 20-second countdown as soon as at least two players are waiting. The countdown pauses if fewer than two remain.
 - The last surviving player wins. Matches draw when the configured time limit expires.
 - Waiting players, active players, and spectators have their inventory, location, gamemode, health, experience, effects, flight state, and scoreboard restored when they leave.
-- Recovery snapshots survive plugin or server restarts.
-- Players cannot walk, teleport, or command their way out of an arena while holding a Spleef kit. See Protection below.
+- A trident still in flight when a player joins is taken out of the world and handed back with the rest of their inventory. Without this it is simply lost: the player is teleported away from it, Loyalty cannot follow them into the arena, and the entity despawns while the match runs. The trident is moved rather than copied, so one already picked up or returned by Loyalty yields nothing.
+- An ender pearl still in flight when a player joins is removed, so it cannot land mid-match and fire a teleport.
+- Recovery snapshots survive plugin or server restarts, including any returned trident.
+- Players cannot walk, teleport, or command their way out of an arena while holding a Spleef kit, and players with no session cannot teleport into one. See Protection below.
 
 Spleef statistics are stored in `plugins/Spleef-OG/stats.yml`. Use `/spleef stats [player]` to see wins, losses, ties, and games played.
 
@@ -23,6 +25,9 @@ Spleef statistics are stored in `plugins/Spleef-OG/stats.yml`. Use `/spleef stat
 - WorldGuard 7
 
 Every dependency resolves from a public Maven repository; nothing needs to be vendored to build this.
+
+Optional, integrated when present: EternalCombat-OG, BattleTracker, GameModeInventories-OG, Scoreboard-OG,
+Spawn-OG, PlayerBounties-OG, and Essentials. See Integrations below.
 
 ## Configuration
 
@@ -49,6 +54,10 @@ protection:
 
 - `block-teleports` cancels any teleport whose destination is outside the arena region. Destinations inside the
   region are always allowed, so the plugin's own teleports need no special case.
+- The reverse is also enforced: a player with no Spleef session is turned away from teleports that land inside a
+  live arena, such as `/tpa` to someone in a match. Every other guard keys on having a session, so without this
+  an outsider arrives completely unprotected. `spleef.admin` and `spleef.bypass.teleport` are exempt, as are the
+  plugin's own restore teleports.
 - Command matching resolves namespaced spellings and registered aliases, so `home` also covers `essentials:home`.
   Multi-word entries such as `union home` match the start of what the player typed.
 - `/spleef` is always permitted, so a player can never be trapped in an arena.
@@ -147,6 +156,8 @@ The bypasses `spleef.bypass.teleport` and `spleef.bypass.commands` default to no
   its sidebar only once and has no re-assert loop, so without this its sidebar stays blank after a match.
 - Spawn-OG's respawn handling is overridden inside an arena by listening at a higher priority, and recovery after a
   relog is deferred a few ticks so its asynchronous login teleport cannot land on top of the restore.
+- Essentials has its recorded back location repointed at the player's pre-Spleef spot when they are restored.
+  Otherwise the restore teleport leaves `/back` aimed at the arena, which the teleport guard then refuses.
 - HorseTp-OG and PetTeleport-OG suppress teleports while `SpleefAPI.isInSpleef` is true.
 - PlayerBounties-OG claims and placements involving Spleef players are cancelled.
 

@@ -38,11 +38,14 @@ public final class PlayerSnapshot {
     private final int fireTicks;
     private final float fallDistance;
     private final transient Scoreboard scoreboard;
+    // Items taken out of the world on entry (a trident still in flight) and handed
+    // back with the rest of the inventory. Never captured from the player.
+    private final List<ItemStack> returnedItems;
 
     private PlayerSnapshot(Location location, ItemStack[] storage, ItemStack[] armor, ItemStack[] extra,
             ItemStack cursor, List<PotionEffect> potionEffects, GameMode gameMode, float experience, int level,
             int totalExperience, double health, int foodLevel, float saturation, float exhaustion, boolean allowFlight,
-            boolean flying, int fireTicks, float fallDistance, Scoreboard scoreboard)
+            boolean flying, int fireTicks, float fallDistance, Scoreboard scoreboard, List<ItemStack> returnedItems)
     {
 
         this.location = location;
@@ -64,6 +67,7 @@ public final class PlayerSnapshot {
         this.fireTicks = fireTicks;
         this.fallDistance = fallDistance;
         this.scoreboard = scoreboard;
+        this.returnedItems = returnedItems == null ? new ArrayList<>() : returnedItems;
 
     }
 
@@ -75,7 +79,19 @@ public final class PlayerSnapshot {
                 player.getGameMode(), player.getExp(), player.getLevel(), player.getTotalExperience(),
                 player.getHealth(), player.getFoodLevel(), player.getSaturation(), player.getExhaustion(),
                 player.getAllowFlight(), player.isFlying(), player.getFireTicks(), player.getFallDistance(),
-                player.getScoreboard());
+                player.getScoreboard(), new ArrayList<>());
+
+    }
+
+    // Adds an item that is not part of the captured inventory and must still come
+    // back when the snapshot is restored.
+    public void addReturnedItem(ItemStack item) {
+
+        if (item != null && item.getType() != org.bukkit.Material.AIR) {
+
+            this.returnedItems.add(item.clone());
+
+        }
 
     }
 
@@ -125,6 +141,39 @@ public final class PlayerSnapshot {
 
         }
 
+        this.giveReturnedItems(player);
+
+    }
+
+    // Handed back after the teleport so anything that does not fit drops where the
+    // player actually ends up, not in the arena they just left.
+    private void giveReturnedItems(Player player) {
+
+        if (this.returnedItems.isEmpty()) {
+
+            return;
+
+        }
+
+        for (ItemStack item : this.returnedItems) {
+
+            if (item == null) {
+
+                continue;
+
+            }
+
+            for (ItemStack leftover : player.getInventory().addItem(item.clone()).values()) {
+
+                player.getWorld().dropItemNaturally(player.getLocation(), leftover);
+
+            }
+
+        }
+
+        this.returnedItems.clear();
+        player.updateInventory();
+
     }
 
     // Falls back to a world spawn when the recorded world is gone. Skipping the
@@ -157,6 +206,7 @@ public final class PlayerSnapshot {
         yaml.set(path + ".armor", Arrays.asList(this.armor));
         yaml.set(path + ".extra", Arrays.asList(this.extra));
         yaml.set(path + ".cursor", this.cursor);
+        yaml.set(path + ".returned-items", new ArrayList<>(this.returnedItems));
         yaml.set(path + ".game-mode", this.gameMode.name());
         yaml.set(path + ".experience", this.experience);
         yaml.set(path + ".level", this.level);
@@ -213,7 +263,25 @@ public final class PlayerSnapshot {
                 yaml.getInt(path + ".food-level", 20), (float) yaml.getDouble(path + ".saturation", 5.0D),
                 (float) yaml.getDouble(path + ".exhaustion"), yaml.getBoolean(path + ".allow-flight"),
                 yaml.getBoolean(path + ".flying"), yaml.getInt(path + ".fire-ticks"),
-                (float) yaml.getDouble(path + ".fall-distance"), null);
+                (float) yaml.getDouble(path + ".fall-distance"), null,
+                readItemList(yaml.getList(path + ".returned-items", List.of())));
+
+    }
+
+    private static List<ItemStack> readItemList(List<?> values) {
+
+        List<ItemStack> result = new ArrayList<>();
+        for (Object value : values) {
+
+            if (value instanceof ItemStack item) {
+
+                result.add(item);
+
+            }
+
+        }
+
+        return result;
 
     }
 
