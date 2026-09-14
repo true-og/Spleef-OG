@@ -29,6 +29,9 @@ public final class ArenaSession {
     private ArenaState state = ArenaState.WAITING;
     private int secondsRemaining;
     private ArenaScoreboard scoreboard;
+    // Set once the players have been told the start is held for the floor, so the
+    // message is not repeated every second of the wait.
+    private boolean announcedFloorWait;
 
     ArenaSession(ArenaManager manager, SpleefArena arena) {
 
@@ -261,6 +264,11 @@ public final class ArenaSession {
 
         this.state = ArenaState.COUNTDOWN;
         this.secondsRemaining = this.manager.config().waitingSeconds();
+        this.announcedFloorWait = false;
+        // Started now so a large floor is written back during the countdown instead
+        // of after it. Nothing can touch the floor in the meantime: waiting players
+        // may not break blocks and the region denies everyone else.
+        this.manager.resetLayers(this.arena);
         this.broadcastCountdown();
 
     }
@@ -303,7 +311,24 @@ public final class ArenaSession {
 
         }
 
-        this.manager.resetLayers(this.arena);
+        // The floor must be whole before anyone is placed on it. A reset that is
+        // still being written over later ticks would otherwise leave holes at the
+        // start, or fill in blocks players have just broken.
+        if (this.manager.isResetting(this.arena)) {
+
+            if (!this.announcedFloorWait) {
+
+                this.announcedFloorWait = true;
+                this.broadcast(
+                        Messages.body().append(Component.text("Waiting for the floor to finish restoring.")).build());
+
+            }
+
+            return;
+
+        }
+
+        this.announcedFloorWait = false;
         this.state = ArenaState.IN_GAME;
         this.secondsRemaining = this.manager.config().timeLimitSeconds();
         this.alive.clear();
@@ -313,19 +338,35 @@ public final class ArenaSession {
         this.eliminated.clear();
 
         List<org.bukkit.Location> spawns = this.arena.spawns();
+        List<Player> unplaced = new java.util.ArrayList<>();
         int spawnIndex = 0;
         for (UUID playerId : this.players) {
 
             Player player = Bukkit.getPlayer(playerId);
-            if (player != null) {
+            if (player != null && !this.manager.startPlayer(player, this.arena, spawns.get(spawnIndex++))) {
 
-                this.manager.startPlayer(player, this.arena, spawns.get(spawnIndex++));
+                unplaced.add(player);
 
             }
 
         }
 
-        this.broadcast(Messages.good("Go!"));
+        // Someone whose spawn teleport was refused is not on the floor and cannot
+        // play. Taking them out through the normal leave path puts their state back
+        // and lets the match go on, or end, without them.
+        for (Player player : unplaced) {
+
+            Messages.send(player,
+                    Messages.bad("You could not be placed in the arena, so you were removed from the match."));
+            this.leave(player);
+
+        }
+
+        if (this.state == ArenaState.IN_GAME) {
+
+            this.broadcast(Messages.good("Go!"));
+
+        }
 
     }
 

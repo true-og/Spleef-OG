@@ -98,24 +98,25 @@ public final class ArenaWorld implements Listener {
 
     // Restores an arena floor. Normal-sized arenas finish within one tick's budget;
     // anything larger continues over
-    // the following ticks rather than freezing the server mid-match.
-    void resetLayers(SpleefArena arena) {
+    // the following ticks rather than freezing the server mid-match. Returns true
+    // once the floor is whole; false means isResetting() stays true until it is.
+    boolean resetLayers(SpleefArena arena) {
 
         World world = Bukkit.getWorld(arena.worldName());
         ProtectedRegion region = world == null ? null : this.worldGuard.region(world, arena.regionId());
+        String key = ArenaManager.normalize(arena.name());
+        this.pendingResets.remove(key);
         if (region == null) {
 
-            return;
+            return true;
 
         }
 
-        String key = ArenaManager.normalize(arena.name());
-        this.pendingResets.remove(key);
         FloorReset reset = new FloorReset(world, region, arena);
         int budget = Math.max(1, this.manager.config().resetBlocksPerTick());
         if (reset.run(budget)) {
 
-            return;
+            return true;
 
         }
 
@@ -129,11 +130,19 @@ public final class ArenaWorld implements Listener {
 
             }
 
-            return;
+            return true;
 
         }
 
         this.pendingResets.put(key, reset);
+        return false;
+
+    }
+
+    // True while part of this arena's floor is still waiting to be written back.
+    boolean isResetting(SpleefArena arena) {
+
+        return this.pendingResets.containsKey(ArenaManager.normalize(arena.name()));
 
     }
 

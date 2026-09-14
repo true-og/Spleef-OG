@@ -19,6 +19,9 @@ public final class RecoveryStore {
     private final SpleefPlugin plugin;
     private final File file;
     private final Map<UUID, PlayerSnapshot> snapshots = new HashMap<>();
+    // Set when the last write failed, so the file is known to be behind the
+    // in-memory state.
+    private boolean dirty;
 
     public RecoveryStore(SpleefPlugin plugin) {
 
@@ -28,20 +31,54 @@ public final class RecoveryStore {
 
     }
 
-    public PlayerSnapshot capture(org.bukkit.entity.Player player) {
+    // Records a snapshot for a player about to enter an arena. Returns false, and
+    // keeps nothing, when the
+    // snapshot could not be written to disk: the caller must then refuse the entry,
+    // because a player whose
+    // inventory is only held in memory loses it for good if the server stops before
+    // they leave.
+    public boolean store(UUID playerId, PlayerSnapshot snapshot) {
 
-        PlayerSnapshot snapshot = PlayerSnapshot.capture(player);
-        this.snapshots.put(player.getUniqueId(), snapshot);
-        SpleefAPI.markRecoveryPending(player.getUniqueId());
-        this.save();
-        return snapshot;
+        PlayerSnapshot previous = this.snapshots.put(playerId, snapshot);
+        if (this.save()) {
+
+            SpleefAPI.markRecoveryPending(playerId);
+            return true;
+
+        }
+
+        if (previous == null) {
+
+            this.snapshots.remove(playerId);
+
+        } else {
+
+            this.snapshots.put(playerId, previous);
+
+        }
+
+        return false;
 
     }
 
     // Writes the current snapshots back out after one of them was changed in place.
-    public void persist() {
+    public boolean persist() {
 
-        this.save();
+        return this.save();
+
+    }
+
+    // Retries a write that failed earlier. Called once a second so a stale file,
+    // which would replay an obsolete
+    // snapshot over a player's real inventory after a restart, is corrected as soon
+    // as the disk allows it.
+    public void flushIfDirty() {
+
+        if (this.dirty) {
+
+            this.save();
+
+        }
 
     }
 
@@ -55,7 +92,16 @@ public final class RecoveryStore {
 
         PlayerSnapshot value = this.snapshots.remove(playerId);
         SpleefAPI.clearRecoveryPending(playerId);
-        this.save();
+        if (!this.save() && value != null) {
+
+            // The player has their state back, so the in-memory entry stays gone; the write
+            // is retried from
+            // flushIfDirty until the obsolete copy on disk is replaced.
+            this.plugin.getLogger().severe("The recovery entry for " + playerId
+                    + " is still on disk after it was restored; it will be rewritten when recovery.yml can be saved.");
+
+        }
+
         return value;
 
     }
@@ -94,7 +140,7 @@ public final class RecoveryStore {
 
     }
 
-    private void save() {
+    private boolean save() {
 
         YamlConfiguration yaml = new YamlConfiguration();
         for (Map.Entry<UUID, PlayerSnapshot> entry : this.snapshots.entrySet()) {
@@ -123,9 +169,14 @@ public final class RecoveryStore {
 
             }
 
+            this.dirty = false;
+            return true;
+
         } catch (IOException ex) {
 
+            this.dirty = true;
             this.plugin.getLogger().severe("Could not save recovery.yml: " + ex.getMessage());
+            return false;
 
         }
 

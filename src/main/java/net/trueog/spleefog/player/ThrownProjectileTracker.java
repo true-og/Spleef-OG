@@ -40,7 +40,8 @@ import org.bukkit.inventory.PlayerInventory;
 public final class ThrownProjectileTracker implements Listener {
 
     // A projectile older than this is assumed gone; the entry is dropped so the map
-    // cannot grow without bound for a player who never joins.
+    // cannot grow without bound for a player who never joins. Entries whose entity
+    // is already gone are dropped on the same pass.
     private static final long EXPIRY_MILLIS = 5L * 60L * 1000L;
 
     private final Map<UUID, List<Thrown>> thrown = new HashMap<>();
@@ -93,11 +94,15 @@ public final class ThrownProjectileTracker implements Listener {
 
     }
 
-    // A landed pearl or a recovered trident is no longer in flight.
+    // A landed pearl is spent. A trident is not: it stays in the world after it
+    // hits, still the player's to pick up or to fly back with Loyalty, so it is
+    // kept
+    // until its entity is actually gone. stashOnEntry checks that on the entity
+    // itself, which is what retires a picked-up, despawned, or returned trident.
     @EventHandler(priority = EventPriority.MONITOR)
     public void onHit(ProjectileHitEvent event) {
 
-        if (!(event.getEntity().getShooter() instanceof Player player)) {
+        if (!(event.getEntity() instanceof EnderPearl) || !(event.getEntity().getShooter() instanceof Player player)) {
 
             return;
 
@@ -207,7 +212,8 @@ public final class ThrownProjectileTracker implements Listener {
         while (iterator.hasNext()) {
 
             Thrown entry = iterator.next();
-            if (now - entry.creation > EXPIRY_MILLIS || entry.entity.get() == null) {
+            org.bukkit.entity.Entity entity = entry.entity.get();
+            if (now - entry.creation > EXPIRY_MILLIS || entity == null || !entity.isValid()) {
 
                 iterator.remove();
 

@@ -101,7 +101,37 @@ public final class PlayerSnapshot {
 
     }
 
-    public void restore(Player player) {
+    // Puts the captured state back, in an order chosen so that nothing of value is
+    // handed over until the player
+    // is standing where it belongs and in the mode it was captured in.
+    //
+    // The teleport goes first: a refused teleport (a protection or teleport plugin
+    // returning false) leaves the
+    // player in the arena, and giving them their real inventory there is exactly
+    // what recovery exists to prevent.
+    // The gamemode goes second and is verified, because GameModeInventories-OG
+    // keeps one inventory per gamemode
+    // and refuses creative outside its permitted regions. Checking the mode at the
+    // destination rather than in the
+    // arena is what lets a creative snapshot come back at all, and refusing to
+    // release the items when the mode
+    // did not stick is what keeps a creative inventory from turning into a survival
+    // one.
+    public Outcome restore(Player player) {
+
+        Location destination = safeDestination(this.location);
+        if (destination != null && !player.teleport(destination)) {
+
+            return Outcome.TELEPORT_REFUSED;
+
+        }
+
+        player.setGameMode(this.gameMode);
+        if (player.getGameMode() != this.gameMode) {
+
+            return Outcome.GAME_MODE_REFUSED;
+
+        }
 
         player.getInventory().setStorageContents(clone(this.storage));
         player.getInventory().setArmorContents(clone(this.armor));
@@ -119,7 +149,6 @@ public final class PlayerSnapshot {
         }
 
         player.addPotionEffects(this.potionEffects);
-        player.setGameMode(this.gameMode);
         player.setExp(this.experience);
         player.setLevel(this.level);
         player.setTotalExperience(this.totalExperience);
@@ -134,20 +163,21 @@ public final class PlayerSnapshot {
         player.setFallDistance(this.fallDistance);
         player.setScoreboard(
                 this.scoreboard == null ? Bukkit.getScoreboardManager().getMainScoreboard() : this.scoreboard);
-        Location destination = safeDestination(this.location);
-        if (destination != null) {
-
-            player.teleport(destination);
-
-        }
-
         this.giveReturnedItems(player);
+        return Outcome.RESTORED;
 
     }
 
-    // Handed back after the teleport so anything that does not fit drops where the
-    // player actually ends up, not in the arena they just left.
-    private void giveReturnedItems(Player player) {
+    public GameMode gameMode() {
+
+        return this.gameMode;
+
+    }
+
+    // Hands back only the items taken out of the world on entry. Used when an entry
+    // is abandoned before the
+    // snapshot was ever stored, so a stashed trident is not lost with it.
+    public void giveReturnedItems(Player player) {
 
         if (this.returnedItems.isEmpty()) {
 
@@ -174,6 +204,13 @@ public final class PlayerSnapshot {
         this.returnedItems.clear();
         player.updateInventory();
 
+    }
+
+    // Why a restore stopped short. Anything but RESTORED means the snapshot is
+    // still the only copy of the
+    // player's state and must be kept.
+    public enum Outcome {
+        RESTORED, TELEPORT_REFUSED, GAME_MODE_REFUSED
     }
 
     // Falls back to a world spawn when the recorded world is gone. Skipping the

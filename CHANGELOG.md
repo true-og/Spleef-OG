@@ -4,6 +4,25 @@
 
 ### Fixed
 
+- An arena death kept the player's level but still spawned experience orbs for it, so every elimination was free
+  experience for whoever collected the orbs. Arena deaths now drop none, and a player's own experience is held in
+  their snapshot for the duration of a session instead of on the player.
+- A player's inventory was handed back before they were teleported home and before their gamemode was verified.
+  With GameModeInventories-OG refusing creative inside the arena, someone who joined from a creative region could
+  leave with their creative inventory in survival. The teleport now comes first, the gamemode is checked at the
+  destination, and the inventory is only released once that mode has stuck.
+- A refused return teleport was treated as a completed restore, deleting the recovery entry and stranding the
+  player in the arena with their real inventory. Every restore now reports its outcome; on failure the player is
+  parked in survival with nothing, the entry is kept, and the teleport is retried before falling back to the next
+  login. A refused match-start placement now removes that player from the match instead of leaving them off the
+  floor with a kit.
+- A failed write of `recovery.yml` was logged and ignored, so a disk or permission problem let a player enter with
+  no durable copy of their inventory. Entry is now refused when the snapshot cannot be saved, and a failed write
+  after a restore is retried until the obsolete copy on disk is gone.
+- Floors larger than `reset-blocks-per-tick` were still being restored when the match started. The reset now
+  begins with the countdown and the start is held until it has finished.
+- A trident that had landed was forgotten by the pre-match trident return, so joining after a throw hit something
+  left the trident behind or handed it into the temporary kit. Tridents are now tracked until their entity is gone.
 - Players could teleport out of a running match with their Spleef kit. `PlayerMoveEvent` never fires for a
   teleport, so the region-exit check missed `/spawn`, `/home`, `/back`, `/tpa`, and every other teleport. Teleports
   landing outside the arena region are now cancelled.

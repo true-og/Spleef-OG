@@ -66,6 +66,10 @@ public final class ArenaManager implements Listener {
     // spawn point always does.
     private static final double RECOVERY_DRIFT_SQUARED = 16.0D * 16.0D;
     private static final long ENTRY_COOLDOWN_MILLIS = 2000L;
+    // A refused return teleport is retried at this interval, a bounded number of
+    // times, before recovery falls back to the next login.
+    private static final long RECOVERY_RETRY_TICKS = 100L;
+    private static final int RECOVERY_RETRY_LIMIT = 12;
 
     private final SpleefPlugin plugin;
     private final SpleefConfig config;
@@ -87,6 +91,7 @@ public final class ArenaManager implements Listener {
     private final Set<UUID> forcedDeaths = new HashSet<>();
     private final Set<UUID> restoring = new HashSet<>();
     private final Map<UUID, Long> lastEntry = new HashMap<>();
+    private final Map<UUID, Integer> recoveryRetries = new HashMap<>();
     private BukkitTask tickTask;
 
     public ArenaManager(SpleefPlugin plugin, SpleefConfig config, WorldGuardSupport worldGuard,
@@ -138,6 +143,7 @@ public final class ArenaManager implements Listener {
 
     private void tickSessions() {
 
+        this.recovery.flushIfDirty();
         for (ArenaSession session : new ArrayList<>(this.sessions.values())) {
 
             try {
@@ -189,7 +195,9 @@ public final class ArenaManager implements Listener {
         this.forcedDeaths.clear();
         this.restoring.clear();
         this.lastEntry.clear();
+        this.recoveryRetries.clear();
         this.thrownProjectiles.clear();
+        this.recovery.flushIfDirty();
         this.stats.save();
         this.gameModeInventories.releaseAll();
 
@@ -426,9 +434,17 @@ public final class ArenaManager implements Listener {
 
     }
 
-    void resetLayers(SpleefArena arena) {
+    // Returns true when the floor is whole again before returning; false means the
+    // rest is still being written over the following ticks.
+    boolean resetLayers(SpleefArena arena) {
 
-        this.arenaWorld.resetLayers(arena);
+        return this.arenaWorld.resetLayers(arena);
+
+    }
+
+    boolean isResetting(SpleefArena arena) {
+
+        return this.arenaWorld.isResetting(arena);
 
     }
 
@@ -455,12 +471,18 @@ public final class ArenaManager implements Listener {
         }
 
         this.lastEntry.put(player.getUniqueId(), now);
-        PlayerSnapshot snapshot = this.recovery.capture(player);
+        PlayerSnapshot snapshot = PlayerSnapshot.capture(player);
         // A trident still in flight is pulled out of the world and rides the snapshot
         // home; a pearl in flight is dropped so it cannot fire a teleport mid-match.
-        if (this.thrownProjectiles.stashOnEntry(player, snapshot)) {
+        this.thrownProjectiles.stashOnEntry(player, snapshot);
+        if (!this.recovery.store(player.getUniqueId(), snapshot)) {
 
-            this.recovery.persist();
+            // Nothing has been taken from the player yet, so the only thing to undo is the
+            // trident that was just pulled out of the world. Going ahead with a snapshot
+            // that exists only in memory would lose their inventory to a restart.
+            snapshot.giveReturnedItems(player);
+            Messages.send(player, Messages.bad("Spleef could not save your inventory for recovery. Try again later."));
+            return false;
 
         }
 
@@ -488,26 +510,9 @@ public final class ArenaManager implements Listener {
     private void restoreAfterFailedEntry(Player player) {
 
         PlayerSnapshot snapshot = this.recovery.get(player.getUniqueId());
-        this.restoring.add(player.getUniqueId());
-        try {
+        if (snapshot != null) {
 
-            if (snapshot != null) {
-
-                snapshot.restore(player);
-                this.essentials.setBackLocation(player, snapshot.location());
-                this.recovery.remove(player.getUniqueId());
-
-            }
-
-        } catch (RuntimeException ex) {
-
-            this.plugin.getLogger().log(java.util.logging.Level.SEVERE,
-                    "Could not undo a failed Spleef entry for " + player.getName() + "; recovery data was retained.",
-                    ex);
-
-        } finally {
-
-            this.restoring.remove(player.getUniqueId());
+            this.restoreSnapshot(player, snapshot, "undo a failed Spleef entry for");
 
         }
 
@@ -534,23 +539,7 @@ public final class ArenaManager implements Listener {
         PlayerSnapshot snapshot = this.recovery.get(player.getUniqueId());
         if (snapshot != null && !player.isDead()) {
 
-            this.restoring.add(player.getUniqueId());
-            try {
-
-                snapshot.restore(player);
-                this.essentials.setBackLocation(player, snapshot.location());
-                this.recovery.remove(player.getUniqueId());
-
-            } catch (RuntimeException ex) {
-
-                this.plugin.getLogger().log(java.util.logging.Level.SEVERE,
-                        "Could not restore " + player.getName() + " after Spleef; recovery data was retained.", ex);
-
-            } finally {
-
-                this.restoring.remove(player.getUniqueId());
-
-            }
+            this.restoreSnapshot(player, snapshot, "restore");
 
         } else {
 
@@ -560,6 +549,132 @@ public final class ArenaManager implements Listener {
 
         this.releaseGameModeInventories(player);
         this.scoreboardOG.reopenLater(player);
+
+    }
+
+    // The one place a snapshot is put back. Returns true only when the player has
+    // everything again and the recovery entry is gone. On any other outcome the
+    // entry is kept, because it is the only copy of their real state, and the
+    // player is parked in survival with nothing: not their inventory, and not
+    // Spleef's kit or spectator flight either, since there is no session left to
+    // guard those.
+    //
+    // A refused teleport is retried for a while and then left for the next login.
+    // A refused gamemode means the player is home but cannot be put in the mode
+    // their inventory belongs to, so the items wait for a login where the mode is
+    // accepted or for an admin.
+    private boolean restoreSnapshot(Player player, PlayerSnapshot snapshot, String action) {
+
+        PlayerSnapshot.Outcome outcome;
+        this.restoring.add(player.getUniqueId());
+        try {
+
+            outcome = snapshot.restore(player);
+
+        } catch (RuntimeException ex) {
+
+            this.plugin.getLogger().log(java.util.logging.Level.SEVERE,
+                    "Could not " + action + " " + player.getName() + " after Spleef; recovery data was retained.", ex);
+            return false;
+
+        } finally {
+
+            this.restoring.remove(player.getUniqueId());
+
+        }
+
+        switch (outcome) {
+
+            case RESTORED -> {
+
+                this.recoveryRetries.remove(player.getUniqueId());
+                this.essentials.setBackLocation(player, snapshot.location());
+                this.recovery.remove(player.getUniqueId());
+                return true;
+
+            }
+
+            case TELEPORT_REFUSED -> {
+
+                this.park(player);
+                int attempt = this.recoveryRetries.merge(player.getUniqueId(), 1, Integer::sum);
+                this.plugin.getLogger()
+                        .warning("Could not " + action + " " + player.getName()
+                                + ": the teleport back to their pre-Spleef location was refused (attempt " + attempt
+                                + "). Recovery data was retained.");
+                if (attempt == 1) {
+
+                    Messages.send(player, Messages.warn(
+                            "Something refused to teleport you back. Spleef will keep trying, and your inventory is kept safe."));
+
+                }
+
+                if (attempt < RECOVERY_RETRY_LIMIT && this.plugin.isEnabled()) {
+
+                    // Looked up again when the retry runs: a Player object that has since
+                    // disconnected must never be restored onto.
+                    UUID playerId = player.getUniqueId();
+                    Bukkit.getScheduler().runTaskLater(this.plugin, () -> {
+
+                        Player current = Bukkit.getPlayer(playerId);
+                        if (current != null) {
+
+                            this.restoreRecovery(current);
+
+                        }
+
+                    }, RECOVERY_RETRY_TICKS);
+
+                }
+
+                return false;
+
+            }
+
+            case GAME_MODE_REFUSED -> {
+
+                this.plugin.getLogger().warning("Could not " + action + " " + player.getName() + ": their "
+                        + snapshot.gameMode().name().toLowerCase(Locale.ROOT)
+                        + " gamemode was refused at their pre-Spleef location, so their inventory was not released. "
+                        + "Recovery data was retained.");
+                this.park(player);
+                Messages.send(player,
+                        Messages.warn("Your previous gamemode was refused here, so your inventory "
+                                + "was not given back. It is kept safe and will be restored when you next log in; "
+                                + "ask an admin if it does not come back."));
+                return false;
+
+            }
+
+        }
+
+        return false;
+
+    }
+
+    // Leaves a player who cannot be given their inventory back with nothing of
+    // Spleef's either: no kit, no spectator flight, and a mode that is never
+    // refused. Done as a restore so Protection lets the gamemode through.
+    private void park(Player player) {
+
+        this.restoring.add(player.getUniqueId());
+        try {
+
+            player.setItemOnCursor(null);
+            player.closeInventory();
+            player.getInventory().clear();
+            player.getInventory().setArmorContents(new ItemStack[4]);
+            player.getInventory().setItemInOffHand(null);
+            player.updateInventory();
+            player.setAllowFlight(false);
+            player.setGameMode(GameMode.SURVIVAL);
+            player.setScoreboard(Bukkit.getScoreboardManager().getMainScoreboard());
+
+        } finally {
+
+            this.restoring.remove(player.getUniqueId());
+
+        }
 
     }
 
@@ -579,9 +694,12 @@ public final class ArenaManager implements Listener {
         Bukkit.getScheduler().runTask(this.plugin, () -> {
 
             // The player may have re-joined an arena in the meantime; releasing now would
-            // leave the rest of that
-            // match running with the suspension lifted.
-            if (!this.playerSessions.containsKey(player.getUniqueId())) {
+            // leave the rest of that match running with the suspension lifted. A retained
+            // recovery entry means Spleef still owns their inventory, and handing them back
+            // early would let GameModeInventories-OG file Spleef's leftovers as theirs.
+            if (!this.playerSessions.containsKey(player.getUniqueId())
+                    && !this.recovery.contains(player.getUniqueId()))
+            {
 
                 this.gameModeInventories.release(player);
 
@@ -591,9 +709,16 @@ public final class ArenaManager implements Listener {
 
     }
 
-    void startPlayer(Player player, SpleefArena arena, Location spawn) {
+    // Returns false when the player could not be placed at their spawn. They are
+    // left with no kit, and the session has to take them out of the match.
+    boolean startPlayer(Player player, SpleefArena arena, Location spawn) {
 
-        this.preparePlayer(player, GameMode.SURVIVAL, spawn);
+        if (!this.preparePlayer(player, GameMode.SURVIVAL, spawn)) {
+
+            return false;
+
+        }
+
         if (arena.gameType() == GameType.CLASSIC) {
 
             player.getInventory().setItem(0, this.config.classicTool());
@@ -606,6 +731,7 @@ public final class ArenaManager implements Listener {
         }
 
         player.updateInventory();
+        return true;
 
     }
 
@@ -690,6 +816,11 @@ public final class ArenaManager implements Listener {
 
         player.setFireTicks(0);
         player.setFallDistance(0.0F);
+        // The player's own experience lives in the snapshot for the duration. Nothing
+        // in a match should be able to drop, spend, or grow it.
+        player.setExp(0.0F);
+        player.setLevel(0);
+        player.setTotalExperience(0);
         player.setHealth(player.getAttribute(Attribute.GENERIC_MAX_HEALTH).getValue());
         player.setFoodLevel(20);
         player.setSaturation(5.0F);
@@ -722,26 +853,14 @@ public final class ArenaManager implements Listener {
         }
 
         this.gameModeInventories.suspend(player);
-        this.restoring.add(player.getUniqueId());
-        try {
+        Location expected = snapshot.location();
+        boolean restored = this.restoreSnapshot(player, snapshot, "recover");
+        this.releaseGameModeInventories(player);
+        if (restored) {
 
-            Location expected = snapshot.location();
-            snapshot.restore(player);
-            this.essentials.setBackLocation(player, snapshot.location());
-            this.recovery.remove(player.getUniqueId());
             this.scoreboardOG.reopenLater(player);
             this.confirmRecoveryLocation(player, expected);
-            Messages.send(player, Messages.grey("Your pre-Spleef state was recovered after a restart."));
-
-        } catch (RuntimeException ex) {
-
-            this.plugin.getLogger().log(java.util.logging.Level.SEVERE,
-                    "Could not recover " + player.getName() + " after a restart; recovery data was retained.", ex);
-
-        } finally {
-
-            this.restoring.remove(player.getUniqueId());
-            this.releaseGameModeInventories(player);
+            Messages.send(player, Messages.grey("Your pre-Spleef state was recovered."));
 
         }
 
@@ -796,6 +915,9 @@ public final class ArenaManager implements Listener {
 
         event.setKeepInventory(true);
         event.setKeepLevel(true);
+        // Keeping the level does not stop the death from spawning orbs as well, and
+        // those would be free experience for whoever collects them.
+        event.setDroppedExp(0);
         event.getDrops().clear();
         event.deathMessage(null);
         this.forcedDeaths.remove(player.getUniqueId());
@@ -871,6 +993,8 @@ public final class ArenaManager implements Listener {
             session.leave(event.getPlayer());
 
         }
+
+        this.recoveryRetries.remove(event.getPlayer().getUniqueId());
 
     }
 
