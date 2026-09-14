@@ -19,7 +19,7 @@ java {
 /* ----------------------------- Metadata ------------------------------ */
 group = "net.trueog"
 
-version = "2.0.2-SNAPSHOT"
+version = "2.0.2"
 
 val apiVersion = "1.19"
 

@@ -19,8 +19,15 @@ public final class CombatHook {
     private static final String BATTLE_TRACKER = "BattleTracker";
 
     private final SpleefPlugin owner;
+    // Each provider is remembered together with the plugin instance it was read
+    // from. After a plugin reload the
+    // instance changes and the old fight manager stops being updated, so a cached
+    // provider would answer "not in
+    // combat" for everyone from then on.
     private Provider eternalCombat;
+    private Plugin eternalCombatPlugin;
     private Provider battleTracker;
+    private Plugin battleTrackerPlugin;
     private boolean warned;
     private boolean reportedNoProvider;
 
@@ -93,8 +100,10 @@ public final class CombatHook {
 
     private Provider eternalCombat(Plugin plugin) throws ReflectiveOperationException {
 
-        if (this.eternalCombat == null) {
+        if (this.eternalCombat == null || this.eternalCombatPlugin != plugin) {
 
+            this.eternalCombat = null;
+            this.eternalCombatPlugin = plugin;
             Method accessor = plugin.getClass().getMethod("getFightManager");
             Object manager = accessor.invoke(plugin);
             if (manager == null) {
@@ -105,6 +114,7 @@ public final class CombatHook {
 
             Method query = manager.getClass().getMethod("isInCombat", java.util.UUID.class);
             this.eternalCombat = player -> Boolean.TRUE.equals(query.invoke(manager, player.getUniqueId()));
+            this.warned = false;
 
         }
 
@@ -114,8 +124,10 @@ public final class CombatHook {
 
     private Provider battleTracker(Plugin plugin) throws ReflectiveOperationException {
 
-        if (this.battleTracker == null) {
+        if (this.battleTracker == null || this.battleTrackerPlugin != plugin) {
 
+            this.battleTracker = null;
+            this.battleTrackerPlugin = plugin;
             Method accessor = plugin.getClass().getMethod("getCombatLog");
             Object combatLog = accessor.invoke(plugin);
             if (combatLog == null) {
@@ -126,6 +138,7 @@ public final class CombatHook {
 
             Method query = combatLog.getClass().getMethod("isInCombat", Player.class);
             this.battleTracker = player -> Boolean.TRUE.equals(query.invoke(combatLog, player));
+            this.warned = false;
 
         }
 

@@ -1,8 +1,42 @@
 # Changelog
 
-## 2.0.2-SNAPSHOT
+## 2.0.2
 
 ### Fixed
+
+- GameModeInventories-OG suspension was keyed on the player's UUID, but a permission attachment belongs to one
+  `Player` object. A player who left with a retained recovery entry (dead at quit, or a refused return teleport) and
+  logged back in was restored with the suspension silently missing, so their kit or empty inventory could be filed
+  as a real one. The attachment is now re-created whenever it belongs to a previous login.
+- Corner selection for layers and death regions counted a right-click twice, once per hand, so a single click with
+  an empty hand could set both corners on one block and save a one-block death region. Only the main hand counts.
+- `/spleef create` printed its colour codes literally.
+- Joining or spectating a refused arena printed two contradictory messages; each refusal is now explained once,
+  including being in another arena already or having a recovery still pending.
+- A pending layer or death-region selection survived `/spleef delete` of its arena and wrote into the deleted
+  object, reporting success while saving nothing. Deleting an arena now cancels selections for it.
+- Arena and recovery locations are stored by world name instead of as live `Location` objects. A live `Location`
+  throws once its world is unloaded, which could abort a restore without parking the player and, because the
+  exception escaped the recovery writer, stop `recovery.yml` from being saved for anyone. Arenas whose world is
+  loaded after Spleef enables (by Multiverse or similar) also loaded with no spawns and were then saved back that way;
+  they now load intact and become usable when the world appears. Old files are read transparently.
+- `arenas.yml` and `stats.yml` were written in place, so a crash mid-write truncated them and the next save replaced
+  the truncated file with whatever was in memory. All three data files now use the temporary-file-and-move write
+  `recovery.yml` already had, and a file that fails to parse is moved aside under a `.corrupt-<timestamp>` name
+  instead of being treated as empty and overwritten. Unreadable recovery entries are kept on disk verbatim.
+- The combat-tag and Essentials hooks cached a plugin instance forever, so after `/plugman reload` of the provider
+  they kept asking a dead object; the combat check then answered "not in combat" for everyone. Both now re-resolve
+  whenever the provider instance changes, and the Essentials hook logs once instead of failing silently.
+- `PlayerBounties-OG` protection ran at `NORMAL` priority, where a later listener could undo the cancellation. It now
+  runs at `HIGHEST`.
+- `SpleefJoinEvent` fired before the session listed the player, so a listener asking the API saw them as absent.
+- A respawn inside a session whose arena world had vanished would have thrown on a null respawn location; the player
+  is now taken out of the session instead.
+- The per-player join cooldown map was never pruned, and the pending-recovery API set was not cleared on disable.
+- A misleading "stand inside a flagged region" message when the WorldGuard flag itself had failed to register; the
+  real cause is now reported to the admin.
+- Documentation: `/spleef cancel` and the `spec` alias were undocumented, the `/spleef reload` and teleport-guard
+  descriptions did not match the code, and the config value floors were not mentioned.
 
 - An arena death kept the player's level but still spawned experience orbs for it, so every elimination was free
   experience for whoever collected the orbs. Arena deaths now drop none, and a player's own experience is held in

@@ -36,6 +36,7 @@ public final class SpleefAPI {
     public static void clear() {
 
         ACTIVE_PLAYERS.clear();
+        PENDING_RECOVERY.clear();
 
     }
 

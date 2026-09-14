@@ -2,9 +2,6 @@ package net.trueog.spleefog.data;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.file.AtomicMoveNotSupportedException;
-import java.nio.file.Files;
-import java.nio.file.StandardCopyOption;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -19,6 +16,8 @@ public final class RecoveryStore {
     private final SpleefPlugin plugin;
     private final File file;
     private final Map<UUID, PlayerSnapshot> snapshots = new HashMap<>();
+    // Raw sections this plugin could not read, written back verbatim on every save.
+    private final Map<String, Object> unreadable = new java.util.LinkedHashMap<>();
     // Set when the last write failed, so the file is known to be behind the
     // in-memory state.
     private boolean dirty;
@@ -114,7 +113,11 @@ public final class RecoveryStore {
 
     private void load() {
 
-        YamlConfiguration yaml = YamlConfiguration.loadConfiguration(this.file);
+        // Strict: a recovery.yml that cannot be parsed is moved aside rather than
+        // treated as empty, because the
+        // next save would otherwise replace it and every pending recovery in it would
+        // be gone.
+        YamlConfiguration yaml = YamlFiles.load(this.file, this.plugin.getLogger());
         ConfigurationSection players = yaml.getConfigurationSection("players");
         if (players == null) {
 
@@ -132,7 +135,12 @@ public final class RecoveryStore {
 
             } catch (RuntimeException ex) {
 
-                this.plugin.getLogger().warning("Ignoring invalid recovery entry '" + key + "'.");
+                // Kept in the raw section below so the next save writes it back verbatim
+                // instead of deleting the
+                // only copy of somebody's inventory.
+                this.unreadable.put(key, players.get(key));
+                this.plugin.getLogger().log(java.util.logging.Level.WARNING,
+                        "Could not read recovery entry '" + key + "'; it is being kept in recovery.yml untouched.", ex);
 
             }
 
@@ -142,40 +150,35 @@ public final class RecoveryStore {
 
     private boolean save() {
 
-        YamlConfiguration yaml = new YamlConfiguration();
-        for (Map.Entry<UUID, PlayerSnapshot> entry : this.snapshots.entrySet()) {
-
-            entry.getValue().write(yaml, "players." + entry.getKey());
-
-        }
-
-        // Saved through a temporary file and moved into place. A truncating in-place
-        // write leaves a window where
-        // a crash produces an unparseable file, and an unparseable file loads as empty,
-        // discarding the stored
-        // inventory of every player currently in an arena.
-        File temporary = new File(this.file.getParentFile(), this.file.getName() + ".tmp");
+        // Serialisation failures are treated like disk failures. One snapshot that
+        // cannot be written must not stop
+        // every other player's entry from reaching the disk, and it must not escape
+        // into the caller, where an
+        // exception halfway through an entry or a restore leaves the player in neither
+        // state.
         try {
 
-            yaml.save(temporary);
-            try {
+            YamlConfiguration yaml = new YamlConfiguration();
+            for (Map.Entry<String, Object> entry : this.unreadable.entrySet()) {
 
-                Files.move(temporary.toPath(), this.file.toPath(), StandardCopyOption.REPLACE_EXISTING,
-                        StandardCopyOption.ATOMIC_MOVE);
-
-            } catch (AtomicMoveNotSupportedException ex) {
-
-                Files.move(temporary.toPath(), this.file.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                yaml.set("players." + entry.getKey(), entry.getValue());
 
             }
 
+            for (Map.Entry<UUID, PlayerSnapshot> entry : this.snapshots.entrySet()) {
+
+                entry.getValue().write(yaml, "players." + entry.getKey());
+
+            }
+
+            YamlFiles.save(yaml, this.file);
             this.dirty = false;
             return true;
 
-        } catch (IOException ex) {
+        } catch (IOException | RuntimeException ex) {
 
             this.dirty = true;
-            this.plugin.getLogger().severe("Could not save recovery.yml: " + ex.getMessage());
+            this.plugin.getLogger().log(java.util.logging.Level.SEVERE, "Could not save recovery.yml.", ex);
             return false;
 
         }

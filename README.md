@@ -16,15 +16,18 @@ Spleef-OG runs multiple concurrent arenas in WorldGuard regions inside ordinary 
 - Recovery snapshots survive plugin or server restarts, including any returned trident.
 - Players cannot walk, teleport, or command their way out of an arena while holding a Spleef kit, and players with no session cannot teleport into one. See Protection below.
 
-Spleef statistics are stored in `plugins/Spleef-OG/stats.yml`. Use `/spleef stats [player]` to see wins, losses, ties, and games played.
+Spleef statistics are stored in `plugins/Spleef-OG/stats.yml`. Every data file (`arenas.yml`, `stats.yml`,
+`recovery.yml`) is written through a temporary file and moved into place, and a file that cannot be parsed is moved
+aside under a `.corrupt-<timestamp>` name rather than overwritten. Use `/spleef stats [player]` to see wins, losses, ties, and games played.
 
 ## Requirements
 
-- Java 17+
+- Java 17+ at runtime
 - Purpur / Paper 1.19.4
 - WorldGuard 7
 
-Every dependency resolves from a public Maven repository; nothing needs to be vendored to build this.
+Every dependency resolves from a public Maven repository; nothing needs to be vendored to build this. The Gradle
+toolchain is pinned to a GraalVM 17 JDK, so building needs one installed (or the TrueOG bootstrap that provides it).
 
 Optional, integrated when present: EternalCombat-OG, BattleTracker, GameModeInventories-OG, Scoreboard-OG,
 Spawn-OG, PlayerBounties-OG, and Essentials. See Integrations below.
@@ -39,6 +42,12 @@ world-whitelist:
 ```
 
 It also controls the minimum player count, 20-second waiting period, match time limit, victory delay, tools, and scoreboard.
+Some values have floors that are applied silently: `match.minimum-players` is never below 2,
+`match.time-limit-seconds` never below 30, and `performance.reset-blocks-per-tick` never below 256.
+
+Arena worlds do not need to be loaded when Spleef enables. An arena whose world is loaded later by a world manager
+becomes usable as soon as the world exists, and an arena whose world is unloaded is simply unavailable until it
+returns.
 
 Values may be written in MiniMessage or in legacy `&` colour codes; both are accepted in the same string.
 
@@ -54,8 +63,8 @@ protection:
 
 - `block-teleports` cancels any teleport whose destination is outside the arena region. Destinations inside the
   region are always allowed, so the plugin's own teleports need no special case.
-- The reverse is also enforced: a player with no Spleef session is turned away from teleports that land inside a
-  live arena, such as `/tpa` to someone in a match. Every other guard keys on having a session, so without this
+- The reverse is also enforced: a player with no Spleef session is turned away from teleports that land inside any
+  enabled arena, such as `/tpa` to someone in a match. Every other guard keys on having a session, so without this
   an outsider arrives completely unprotected. `spleef.admin` and `spleef.bypass.teleport` are exempt, as are the
   plugin's own restore teleports.
 - Command matching resolves namespaced spellings and registered aliases, so `home` also covers `essentials:home`.
@@ -101,7 +110,7 @@ Stand inside the region, then configure the arena:
 /spleef info classic
 ```
 
-`layer add` and `deathregion` ask for two block clicks. After the second corner of a layer, run
+`layer add` and `deathregion` ask for two block clicks with the main hand; left or right click both work. After the second corner of a layer, run
 `/spleef layer material <arena> <block data>` to finish it; the prompt is clickable and the block data argument
 tab-completes. `/spleef info` lists whatever setup steps are still outstanding. Arena definitions are stored in
 `plugins/Spleef-OG/arenas.yml`.
@@ -116,7 +125,7 @@ Use `bow` instead of `classic` in the create or mode command for Bow Spleef.
 | `/spleef join` | Show currently available arenas. |
 | `/spleef join <arena>` | Join a named arena. |
 | `/spleef leave` | Leave the current arena or spectator session. |
-| `/spleef spectate <arena>` | Spectate an arena. |
+| `/spleef spectate <arena>` | Spectate an arena. `spec` is accepted as an alias. |
 | `/spleef stats [player]` | Show Spleef statistics. |
 | `/spleef help` | Show the command list. |
 
@@ -134,11 +143,12 @@ Use `bow` instead of `classic` in the create or mode command for Bow Spleef.
 | `/spleef layer material <arena> <block data>` | Finish the selected layer. |
 | `/spleef layer <remove\|list\|clear> <arena> [index]` | Manage existing layers. |
 | `/spleef deathregion <arena>` | Select the elimination volume. |
+| `/spleef cancel` | Abandon a pending layer or death-region selection. |
 | `/spleef mode <arena> <classic\|bow>` | Change game mode. |
 | `/spleef enable <arena>` | Enable an arena. |
 | `/spleef disable <arena>` | Disable an inactive arena. |
 | `/spleef info <arena>` | Show setup and runtime state. |
-| `/spleef reload` | Reload `config.yml` and `arenas.yml`. Arenas in use are left alone. |
+| `/spleef reload` | Reload `config.yml`, and `arenas.yml` too when no arena has anyone in it. While any arena is in use only `config.yml` is reloaded and the busy arenas are listed. |
 
 Player permissions are `spleef.play`, `spleef.spectate`, and `spleef.stats`. Administration uses `spleef.admin`.
 The bypasses `spleef.bypass.teleport` and `spleef.bypass.commands` default to nobody.

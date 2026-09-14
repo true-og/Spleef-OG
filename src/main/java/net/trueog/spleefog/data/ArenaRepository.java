@@ -14,8 +14,8 @@ import net.trueog.spleefog.model.BlockBounds;
 import net.trueog.spleefog.model.GameType;
 import net.trueog.spleefog.model.SpleefArena;
 import net.trueog.spleefog.model.SpleefLayer;
+import net.trueog.spleefog.model.StoredLocation;
 import org.bukkit.Bukkit;
-import org.bukkit.Location;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 
@@ -38,7 +38,7 @@ public final class ArenaRepository {
         List<SpleefArena> arenas = new ArrayList<>();
         Set<String> seen = new LinkedHashSet<>();
         this.managedKeys.clear();
-        YamlConfiguration yaml = YamlConfiguration.loadConfiguration(this.file);
+        YamlConfiguration yaml = YamlFiles.load(this.file, this.plugin.getLogger());
         ConfigurationSection root = yaml.getConfigurationSection("arenas");
         if (root == null) {
 
@@ -91,7 +91,7 @@ public final class ArenaRepository {
 
         // Start from what is on disk so entries this plugin does not manage survive
         // verbatim.
-        YamlConfiguration yaml = YamlConfiguration.loadConfiguration(this.file);
+        YamlConfiguration yaml = YamlFiles.load(this.file, this.plugin.getLogger());
         for (String key : this.managedKeys) {
 
             yaml.set("arenas." + key, null);
@@ -109,9 +109,9 @@ public final class ArenaRepository {
             yaml.set(path + ".region-bounds", writeBounds(arena.regionBounds()));
             yaml.set(path + ".game", arena.gameType().name());
             yaml.set(path + ".enabled", arena.enabled());
-            yaml.set(path + ".waiting-spawn", arena.waitingSpawn());
-            yaml.set(path + ".spectator-spawn", arena.spectatorSpawn());
-            yaml.set(path + ".spawns", arena.spawns());
+            yaml.set(path + ".waiting-spawn", writeLocation(arena.storedWaitingSpawn()));
+            yaml.set(path + ".spectator-spawn", writeLocation(arena.storedSpectatorSpawn()));
+            yaml.set(path + ".spawns", arena.storedSpawns().stream().map(StoredLocation::toMap).toList());
             yaml.set(path + ".death-region", writeBounds(arena.deathRegion()));
 
             int index = 0;
@@ -127,11 +127,11 @@ public final class ArenaRepository {
 
         try {
 
-            yaml.save(this.file);
+            YamlFiles.save(yaml, this.file);
 
-        } catch (IOException ex) {
+        } catch (IOException | RuntimeException ex) {
 
-            this.plugin.getLogger().severe("Could not save arenas.yml: " + ex.getMessage());
+            this.plugin.getLogger().log(java.util.logging.Level.SEVERE, "Could not save arenas.yml.", ex);
 
         }
 
@@ -148,24 +148,24 @@ public final class ArenaRepository {
         String worldName = section.getString("world");
         String region = section.getString("region");
         BlockBounds regionBounds = readBounds(section.getConfigurationSection("region-bounds"));
-        if (worldName == null || region == null || regionBounds == null || Bukkit.getWorld(worldName) == null) {
+        // The world is deliberately not required to be loaded here. A world manager
+        // enabled after this plugin
+        // loads its worlds later, and an arena whose world is absent simply fails
+        // isArenaRuntimeValid until then.
+        if (worldName == null || region == null || regionBounds == null) {
 
-            throw new IllegalArgumentException("world, region, or region bounds are unavailable");
+            throw new IllegalArgumentException("world, region, or region bounds are missing");
 
         }
 
         SpleefArena arena = new SpleefArena(name, worldName, region, regionBounds,
                 GameType.parse(section.getString("game", "CLASSIC")));
         arena.enabled(section.getBoolean("enabled", true));
-        arena.waitingSpawn(section.getLocation("waiting-spawn"));
-        arena.spectatorSpawn(section.getLocation("spectator-spawn"));
+        arena.waitingSpawn(StoredLocation.read(section, "waiting-spawn"));
+        arena.spectatorSpawn(StoredLocation.read(section, "spectator-spawn"));
         for (Object value : section.getList("spawns", List.of())) {
 
-            if (value instanceof Location location) {
-
-                arena.addSpawn(location);
-
-            }
+            arena.addSpawn(StoredLocation.from(value));
 
         }
 
@@ -190,6 +190,12 @@ public final class ArenaRepository {
         }
 
         return arena;
+
+    }
+
+    private static Map<String, Object> writeLocation(StoredLocation location) {
+
+        return location == null ? null : location.toMap();
 
     }
 

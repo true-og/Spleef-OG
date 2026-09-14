@@ -2,21 +2,25 @@ package net.trueog.spleefog.model;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import org.bukkit.Location;
 import org.bukkit.World;
 
+// An arena definition. Locations are kept by world name (see StoredLocation) so a definition survives its world
+// being loaded after this plugin, or unloaded while the plugin runs; the Location accessors resolve on demand and
+// return null while the world is unavailable.
 public final class SpleefArena {
 
     private final String name;
     private final String worldName;
     private final String regionId;
     private final BlockBounds regionBounds;
-    private final List<Location> spawns = new ArrayList<>();
+    private final List<StoredLocation> spawns = new ArrayList<>();
     private final List<SpleefLayer> layers = new ArrayList<>();
     private GameType gameType;
     private boolean enabled = true;
-    private Location waitingSpawn;
-    private Location spectatorSpawn;
+    private StoredLocation waitingSpawn;
+    private StoredLocation spectatorSpawn;
     private BlockBounds deathRegion;
 
     public SpleefArena(String name, String worldName, String regionId, BlockBounds regionBounds, GameType gameType) {
@@ -79,31 +83,65 @@ public final class SpleefArena {
 
     public Location waitingSpawn() {
 
-        return clone(this.waitingSpawn);
+        return resolve(this.waitingSpawn);
+
+    }
+
+    public StoredLocation storedWaitingSpawn() {
+
+        return this.waitingSpawn;
 
     }
 
     public void waitingSpawn(Location location) {
 
-        this.waitingSpawn = clone(location);
+        this.waitingSpawn = StoredLocation.of(location);
+
+    }
+
+    public void waitingSpawn(StoredLocation location) {
+
+        this.waitingSpawn = location;
 
     }
 
     public Location spectatorSpawn() {
 
-        return clone(this.spectatorSpawn);
+        return resolve(this.spectatorSpawn);
+
+    }
+
+    public StoredLocation storedSpectatorSpawn() {
+
+        return this.spectatorSpawn;
 
     }
 
     public void spectatorSpawn(Location location) {
 
-        this.spectatorSpawn = clone(location);
+        this.spectatorSpawn = StoredLocation.of(location);
 
     }
 
+    public void spectatorSpawn(StoredLocation location) {
+
+        this.spectatorSpawn = location;
+
+    }
+
+    // Resolved spawns, in order. Any spawn whose world is not loaded is left out,
+    // which is why callers must treat
+    // the size of this list, not capacity(), as the number of usable spawns at that
+    // moment.
     public List<Location> spawns() {
 
-        return this.spawns.stream().map(SpleefArena::clone).toList();
+        return this.spawns.stream().map(SpleefArena::resolve).filter(Objects::nonNull).toList();
+
+    }
+
+    public List<StoredLocation> storedSpawns() {
+
+        return List.copyOf(this.spawns);
 
     }
 
@@ -127,7 +165,22 @@ public final class SpleefArena {
 
     public void addSpawn(Location location) {
 
-        this.spawns.add(clone(location));
+        StoredLocation stored = StoredLocation.of(location);
+        if (stored != null) {
+
+            this.spawns.add(stored);
+
+        }
+
+    }
+
+    public void addSpawn(StoredLocation location) {
+
+        if (location != null) {
+
+            this.spawns.add(location);
+
+        }
 
     }
 
@@ -176,9 +229,9 @@ public final class SpleefArena {
 
     }
 
-    private static Location clone(Location location) {
+    private static Location resolve(StoredLocation location) {
 
-        return location == null ? null : location.clone();
+        return location == null ? null : location.toLocation();
 
     }
 

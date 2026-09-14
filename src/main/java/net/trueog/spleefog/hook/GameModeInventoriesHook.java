@@ -41,9 +41,26 @@ public final class GameModeInventoriesHook {
 
     public void suspend(Player player) {
 
-        if (!this.enabled || this.attachments.containsKey(player.getUniqueId())) {
+        if (!this.enabled) {
 
             return;
+
+        }
+
+        PermissionAttachment existing = this.attachments.get(player.getUniqueId());
+        if (existing != null) {
+
+            // An attachment belongs to one Player object. After a relog this is a new
+            // object, and the old
+            // attachment would leave the suspension silently missing while the recovery
+            // restore runs.
+            if (existing.getPermissible() == player) {
+
+                return;
+
+            }
+
+            this.release(player);
 
         }
 

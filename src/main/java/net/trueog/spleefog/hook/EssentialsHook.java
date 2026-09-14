@@ -1,6 +1,8 @@
 package net.trueog.spleefog.hook;
 
 import java.lang.reflect.Method;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
@@ -14,63 +16,35 @@ import org.bukkit.plugin.Plugin;
 // with the pre-Spleef spot instead makes /back land where the player expects.
 //
 // Essentials is not a compile dependency, so the two calls are made reflectively and the hook
-// disables itself whenever the plugin, the class or the methods are not what this expects.
+// disables itself whenever the plugin, the class or the methods are not what this expects. The
+// plugin instance is looked up on every call, and the methods are re-resolved whenever it changes,
+// so a reloaded Essentials is picked up instead of being called through a dead instance.
 public final class EssentialsHook {
 
     private static final String[] PLUGIN_NAMES = { "Essentials-OG", "Essentials" };
 
-    private final Plugin essentials;
-    private final Method getUser;
-    private final Method setLastLocation;
+    private final Logger logger;
+    private Plugin cachedPlugin;
+    private Method getUser;
+    private Method setLastLocation;
+    private boolean warned;
 
-    public EssentialsHook() {
+    public EssentialsHook(Logger logger) {
 
-        Plugin found = null;
-        for (String name : PLUGIN_NAMES) {
-
-            Plugin candidate = Bukkit.getPluginManager().getPlugin(name);
-            if (candidate != null && candidate.isEnabled()) {
-
-                found = candidate;
-                break;
-
-            }
-
-        }
-
-        Method userMethod = null;
-        Method locationMethod = null;
-        if (found != null) {
-
-            try {
-
-                userMethod = found.getClass().getMethod("getUser", Player.class);
-                locationMethod = userMethod.getReturnType().getMethod("setLastLocation", Location.class);
-
-            } catch (ReflectiveOperationException | RuntimeException ignored) {
-
-                userMethod = null;
-                locationMethod = null;
-
-            }
-
-        }
-
-        this.essentials = userMethod == null ? null : found;
-        this.getUser = userMethod;
-        this.setLastLocation = locationMethod;
+        this.logger = logger;
 
     }
 
     public boolean isEnabled() {
 
-        return this.essentials != null;
+        return this.findPlugin() != null;
 
     }
 
     public void setBackLocation(Player player, Location location) {
 
-        if (this.essentials == null || location == null || location.getWorld() == null) {
+        Plugin essentials = this.findPlugin();
+        if (essentials == null || location == null || !location.isWorldLoaded()) {
 
             return;
 
@@ -78,19 +52,61 @@ public final class EssentialsHook {
 
         try {
 
-            Object user = this.getUser.invoke(this.essentials, player);
+            this.resolve(essentials);
+            Object user = this.getUser.invoke(essentials, player);
             if (user != null) {
 
                 this.setLastLocation.invoke(user, location);
 
             }
 
-        } catch (ReflectiveOperationException | RuntimeException ignored) {
+        } catch (ReflectiveOperationException | RuntimeException ex) {
 
             // Essentials changed shape or refused the call; /back simply keeps whatever it
-            // had, which Confinement still refuses. Never let this break a restore.
+            // had, which Confinement still refuses. Never let this break a restore, but say
+            // so once so the missing behaviour is not a mystery.
+            if (!this.warned) {
+
+                this.warned = true;
+                this.logger.log(Level.WARNING,
+                        "Could not repoint Essentials /back after Spleef; /back may aim at the arena.", ex);
+
+            }
 
         }
+
+    }
+
+    private Plugin findPlugin() {
+
+        for (String name : PLUGIN_NAMES) {
+
+            Plugin candidate = Bukkit.getPluginManager().getPlugin(name);
+            if (candidate != null && candidate.isEnabled()) {
+
+                return candidate;
+
+            }
+
+        }
+
+        return null;
+
+    }
+
+    private void resolve(Plugin plugin) throws ReflectiveOperationException {
+
+        if (plugin == this.cachedPlugin) {
+
+            return;
+
+        }
+
+        Method userMethod = plugin.getClass().getMethod("getUser", Player.class);
+        this.setLastLocation = userMethod.getReturnType().getMethod("setLastLocation", Location.class);
+        this.getUser = userMethod;
+        this.cachedPlugin = plugin;
+        this.warned = false;
 
     }
 

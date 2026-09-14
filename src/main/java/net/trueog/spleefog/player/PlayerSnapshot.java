@@ -5,6 +5,7 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import net.trueog.spleefog.model.StoredLocation;
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
@@ -19,7 +20,11 @@ import org.bukkit.scoreboard.Scoreboard;
 
 public final class PlayerSnapshot {
 
-    private final Location location;
+    // Held by world name: the origin world may be unloaded while the player is in a
+    // match, or not yet loaded when
+    // recovery.yml is read, and a live Location throws in the first case and cannot
+    // be read in the second.
+    private final StoredLocation location;
     private final ItemStack[] storage;
     private final ItemStack[] armor;
     private final ItemStack[] extra;
@@ -42,7 +47,7 @@ public final class PlayerSnapshot {
     // back with the rest of the inventory. Never captured from the player.
     private final List<ItemStack> returnedItems;
 
-    private PlayerSnapshot(Location location, ItemStack[] storage, ItemStack[] armor, ItemStack[] extra,
+    private PlayerSnapshot(StoredLocation location, ItemStack[] storage, ItemStack[] armor, ItemStack[] extra,
             ItemStack cursor, List<PotionEffect> potionEffects, GameMode gameMode, float experience, int level,
             int totalExperience, double health, int foodLevel, float saturation, float exhaustion, boolean allowFlight,
             boolean flying, int fireTicks, float fallDistance, Scoreboard scoreboard, List<ItemStack> returnedItems)
@@ -73,13 +78,13 @@ public final class PlayerSnapshot {
 
     public static PlayerSnapshot capture(Player player) {
 
-        return new PlayerSnapshot(player.getLocation().clone(), clone(player.getInventory().getStorageContents()),
-                clone(player.getInventory().getArmorContents()), clone(player.getInventory().getExtraContents()),
-                player.getItemOnCursor().clone(), new ArrayList<>(player.getActivePotionEffects()),
-                player.getGameMode(), player.getExp(), player.getLevel(), player.getTotalExperience(),
-                player.getHealth(), player.getFoodLevel(), player.getSaturation(), player.getExhaustion(),
-                player.getAllowFlight(), player.isFlying(), player.getFireTicks(), player.getFallDistance(),
-                player.getScoreboard(), new ArrayList<>());
+        return new PlayerSnapshot(StoredLocation.of(player.getLocation()),
+                clone(player.getInventory().getStorageContents()), clone(player.getInventory().getArmorContents()),
+                clone(player.getInventory().getExtraContents()), player.getItemOnCursor().clone(),
+                new ArrayList<>(player.getActivePotionEffects()), player.getGameMode(), player.getExp(),
+                player.getLevel(), player.getTotalExperience(), player.getHealth(), player.getFoodLevel(),
+                player.getSaturation(), player.getExhaustion(), player.getAllowFlight(), player.isFlying(),
+                player.getFireTicks(), player.getFallDistance(), player.getScoreboard(), new ArrayList<>());
 
     }
 
@@ -95,9 +100,10 @@ public final class PlayerSnapshot {
 
     }
 
+    // The pre-Spleef location, or null while its world is not loaded.
     public Location location() {
 
-        return this.location == null ? null : this.location.clone();
+        return this.location == null ? null : this.location.toLocation();
 
     }
 
@@ -119,7 +125,7 @@ public final class PlayerSnapshot {
     // one.
     public Outcome restore(Player player) {
 
-        Location destination = safeDestination(this.location);
+        Location destination = safeDestination(this.location());
         if (destination != null && !player.teleport(destination)) {
 
             return Outcome.TELEPORT_REFUSED;
@@ -219,7 +225,7 @@ public final class PlayerSnapshot {
     // than landing at spawn.
     private static Location safeDestination(Location location) {
 
-        if (location != null && location.getWorld() != null) {
+        if (location != null && location.isWorldLoaded()) {
 
             return location;
 
@@ -238,7 +244,7 @@ public final class PlayerSnapshot {
 
     public void write(ConfigurationSection yaml, String path) {
 
-        yaml.set(path + ".location", this.location);
+        yaml.set(path + ".location", this.location == null ? null : this.location.toMap());
         yaml.set(path + ".storage", Arrays.asList(this.storage));
         yaml.set(path + ".armor", Arrays.asList(this.armor));
         yaml.set(path + ".extra", Arrays.asList(this.extra));
@@ -277,7 +283,7 @@ public final class PlayerSnapshot {
 
     public static PlayerSnapshot read(ConfigurationSection yaml, String path) {
 
-        Location location = yaml.getLocation(path + ".location");
+        StoredLocation location = StoredLocation.read(yaml, path + ".location");
         ItemStack[] storage = readItems(yaml.getList(path + ".storage", List.of()), 36);
         ItemStack[] armor = readItems(yaml.getList(path + ".armor", List.of()), 4);
         ItemStack[] extra = readItems(yaml.getList(path + ".extra", List.of()), 1);

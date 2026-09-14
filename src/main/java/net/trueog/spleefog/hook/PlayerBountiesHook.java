@@ -46,9 +46,12 @@ public final class PlayerBountiesHook implements Listener {
             }
 
             PlayerBountiesHook listener = new PlayerBountiesHook();
-            Bukkit.getPluginManager().registerEvent(claimClass, listener, EventPriority.NORMAL,
+            // HIGHEST so the cancellation is the last word rather than something a
+            // NORMAL-priority
+            // listener elsewhere can undo.
+            Bukkit.getPluginManager().registerEvent(claimClass, listener, EventPriority.HIGHEST,
                     executor(claimant, victim), owner, true);
-            Bukkit.getPluginManager().registerEvent(setClass, listener, EventPriority.NORMAL, executor(target), owner,
+            Bukkit.getPluginManager().registerEvent(setClass, listener, EventPriority.HIGHEST, executor(target), owner,
                     true);
             return true;
 

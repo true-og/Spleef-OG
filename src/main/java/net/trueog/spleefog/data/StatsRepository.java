@@ -83,11 +83,11 @@ public final class StatsRepository {
 
         try {
 
-            yaml.save(this.file);
+            YamlFiles.save(yaml, this.file);
 
-        } catch (IOException ex) {
+        } catch (IOException | RuntimeException ex) {
 
-            this.plugin.getLogger().severe("Could not save stats.yml: " + ex.getMessage());
+            this.plugin.getLogger().log(java.util.logging.Level.SEVERE, "Could not save stats.yml.", ex);
 
         }
 
@@ -95,7 +95,7 @@ public final class StatsRepository {
 
     private void load() {
 
-        YamlConfiguration yaml = YamlConfiguration.loadConfiguration(this.file);
+        YamlConfiguration yaml = YamlFiles.load(this.file, this.plugin.getLogger());
         ConfigurationSection players = yaml.getConfigurationSection("players");
         if (players == null) {
 

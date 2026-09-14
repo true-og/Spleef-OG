@@ -107,7 +107,7 @@ public final class ArenaManager implements Listener {
         this.recovery = recovery;
         this.gameModeInventories = gameModeInventories;
         this.combat = new CombatHook(plugin);
-        this.essentials = new EssentialsHook();
+        this.essentials = new EssentialsHook(plugin.getLogger());
         this.scoreboardOG = new ScoreboardOGHook(plugin);
         this.arenaWorld = new ArenaWorld(plugin, this, worldGuard);
         this.confinement = new Confinement(this);
@@ -315,6 +315,16 @@ public final class ArenaManager implements Listener {
 
         }
 
+        if (net.trueog.spleefog.SpleefFlags.allowSpleef() == null) {
+
+            // Registration failed at load; the console has the reason. Without this the
+            // admin is told to stand
+            // in a flagged region they are already standing in.
+            return new CreateResult(false, "The WorldGuard flag &ballow-spleef &7could not be registered, so "
+                    + "arenas cannot be created. Check the console and restart the server.", null);
+
+        }
+
         WorldGuardSupport.RegionBinding region = this.worldGuard.findArenaRegion(player);
         if (region == null) {
 
@@ -450,10 +460,26 @@ public final class ArenaManager implements Listener {
 
     boolean enter(Player player, ArenaSession session, boolean spectator, Location destination) {
 
-        if (destination == null || destination.getWorld() == null || player.isDead()
-                || this.recovery.contains(player.getUniqueId()))
-        {
+        if (destination == null || !destination.isWorldLoaded()) {
 
+            Messages.send(player, Messages.bad("That arena's spawn point is not available right now."));
+            return false;
+
+        }
+
+        if (player.isDead()) {
+
+            Messages.send(player, Messages.bad("You cannot enter Spleef while dead."));
+            return false;
+
+        }
+
+        if (this.recovery.contains(player.getUniqueId())) {
+
+            // Their real inventory is still in the store from an earlier session, so a
+            // second snapshot would overwrite it with Spleef's leftovers.
+            Messages.send(player, Messages
+                    .bad("Your pre-Spleef state is still being recovered. Relog if this message does not go away."));
             return false;
 
         }
@@ -502,8 +528,15 @@ public final class ArenaManager implements Listener {
 
         }
 
-        Bukkit.getPluginManager().callEvent(new SpleefJoinEvent(player, session.arena().name(), spectator));
         return true;
+
+    }
+
+    // Called by the session once it lists the player, so listeners see a consistent
+    // state.
+    void announceJoin(Player player, ArenaSession session, boolean spectator) {
+
+        Bukkit.getPluginManager().callEvent(new SpleefJoinEvent(player, session.arena().name(), spectator));
 
     }
 
@@ -966,6 +999,25 @@ public final class ArenaManager implements Listener {
 
         Location destination = session.state() == ArenaState.IN_GAME ? session.arena().spectatorSpawn()
                 : session.arena().waitingSpawn();
+        if (destination == null) {
+
+            // The arena world went away under a running session. Let the respawn go
+            // wherever
+            // the server chose and put the player's own state back instead.
+            Bukkit.getScheduler().runTask(this.plugin, () -> {
+
+                ArenaSession current = this.session(event.getPlayer());
+                if (current != null) {
+
+                    current.leave(event.getPlayer());
+
+                }
+
+            });
+            return;
+
+        }
+
         event.setRespawnLocation(destination);
         Bukkit.getScheduler().runTask(this.plugin, () -> {
 
@@ -995,6 +1047,7 @@ public final class ArenaManager implements Listener {
         }
 
         this.recoveryRetries.remove(event.getPlayer().getUniqueId());
+        this.lastEntry.remove(event.getPlayer().getUniqueId());
 
     }
 

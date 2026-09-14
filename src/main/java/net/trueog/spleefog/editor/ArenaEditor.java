@@ -1,6 +1,7 @@
 package net.trueog.spleefog.editor;
 
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.UUID;
 import net.kyori.adventure.text.Component;
@@ -23,6 +24,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.inventory.EquipmentSlot;
 
 // Two-click region selection for arena layers and death regions.
 //
@@ -98,6 +100,33 @@ public final class ArenaEditor implements Listener {
 
     }
 
+    // Dropped when one arena is deleted or replaced, for the same reason as
+    // cancelAll.
+    public void cancelForArena(String arenaName) {
+
+        Iterator<Map.Entry<UUID, EditSession>> pending = this.edits.entrySet().iterator();
+        while (pending.hasNext()) {
+
+            Map.Entry<UUID, EditSession> entry = pending.next();
+            if (!entry.getValue().arena.name().equalsIgnoreCase(arenaName)) {
+
+                continue;
+
+            }
+
+            pending.remove();
+            Player player = Bukkit.getPlayer(entry.getKey());
+            if (player != null) {
+
+                Messages.send(player, Messages.warn("Your arena selection was cancelled because arena "
+                        + entry.getValue().arena.name() + " was deleted."));
+
+            }
+
+        }
+
+    }
+
     // Completes a layer selection with the block data the admin supplied on the
     // command line.
     public void applyMaterial(Player player, SpleefArena arena, String blockDataText) {
@@ -165,6 +194,16 @@ public final class ArenaEditor implements Listener {
         }
 
         event.setCancelled(true);
+        if (event.getHand() != EquipmentSlot.HAND) {
+
+            // A right-click on a block arrives once per hand. The off-hand copy is still
+            // cancelled above so
+            // nothing in that hand is used, but it must not count as a second click on the
+            // same block.
+            return;
+
+        }
+
         Location location = event.getClickedBlock().getLocation();
         if (!this.arenaManager.isSetupLocationValid(edit.arena, location)) {
 

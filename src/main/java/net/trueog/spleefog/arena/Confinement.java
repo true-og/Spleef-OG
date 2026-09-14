@@ -186,7 +186,10 @@ public final class Confinement implements Listener {
 
         }
 
-        for (ArenaSession candidate : this.manager.sessions()) {
+        // allSessions() rather than the sorted copy: this runs on every teleport of
+        // every
+        // player on the server.
+        for (ArenaSession candidate : this.manager.allSessions()) {
 
             if (!candidate.arena().enabled() || !this.manager.isInsideArena(candidate.arena(), event.getTo())) {
 

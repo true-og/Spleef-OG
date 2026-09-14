@@ -105,12 +105,12 @@ public final class SpleefCommand implements CommandExecutor, TabCompleter {
                     Messages.body().append(Messages.bad("Arena not found. Use "))
                             .append(Messages.value("/spleef arenas")).append(Messages.bad(" to see what is available."))
                             .build());
-
-        } else if (!session.join(player)) {
-
-            Messages.send(sender, Messages.bad("That arena is unavailable, full, or already in progress."));
+            return;
 
         }
+
+        // The session explains every refusal itself, so nothing is added here.
+        session.join(player);
 
     }
 
@@ -153,11 +153,15 @@ public final class SpleefCommand implements CommandExecutor, TabCompleter {
         }
 
         ArenaSession session = this.arenaManager.get(args[1]);
-        if (session == null || !session.spectate(player)) {
+        if (session == null) {
 
-            Messages.send(sender, Messages.bad("That arena cannot be spectated right now."));
+            Messages.send(sender, Messages.bad("Arena not found."));
+            return;
 
         }
+
+        // The session explains every refusal itself, so nothing is added here.
+        session.spectate(player);
 
     }
 
@@ -259,7 +263,9 @@ public final class SpleefCommand implements CommandExecutor, TabCompleter {
         }
 
         ArenaManager.CreateResult result = this.arenaManager.create(player, args[1], gameType);
-        Messages.send(sender, result.success() ? Messages.good(result.message()) : Messages.bad(result.message()));
+        // The message carries legacy colour codes for the highlighted names, so it goes
+        // through the parser.
+        Messages.send(sender, (result.success() ? "&a" : "&c") + result.message());
 
     }
 
@@ -274,6 +280,7 @@ public final class SpleefCommand implements CommandExecutor, TabCompleter {
 
         if (this.arenaManager.delete(arena)) {
 
+            this.editor.cancelForArena(arena.name());
             Messages.send(sender, Messages.good("Deleted arena " + arena.name() + "."));
 
         } else {
@@ -563,7 +570,7 @@ public final class SpleefCommand implements CommandExecutor, TabCompleter {
                         .append(Messages.name(arena.gameType().name())).append(Component.text(", state "))
                         .append(Messages.name(session == null ? "unknown" : session.state().name())).build());
         Messages.send(sender, Messages.body().append(Component.text("Spawns: "))
-                .append(Messages.name(Integer.toString(arena.spawns().size()))).append(Component.text(", layers: "))
+                .append(Messages.name(Integer.toString(arena.capacity()))).append(Component.text(", layers: "))
                 .append(Messages.name(Integer.toString(arena.layers().size()))).append(Component.text(", complete: "))
                 .append(arena.isComplete() ? Messages.good("yes") : Messages.bad("no"))
                 .append(Component.text(", enabled: "))
@@ -574,24 +581,34 @@ public final class SpleefCommand implements CommandExecutor, TabCompleter {
 
         }
 
+        if (!this.arenaManager.isArenaRuntimeValid(arena)) {
+
+            Messages.send(sender, Messages.warn("Not usable right now: world " + arena.worldName()
+                    + " is not loaded, is not whitelisted, or no longer has region " + arena.regionId() + "."));
+
+        }
+
     }
 
     private static String missingSteps(SpleefArena arena) {
 
         List<String> missing = new ArrayList<>();
-        if (arena.waitingSpawn() == null) {
+        // Stored values, not resolved ones: a spawn in a world that is not loaded is
+        // still
+        // configured.
+        if (arena.storedWaitingSpawn() == null) {
 
             missing.add("setwait");
 
         }
 
-        if (arena.spectatorSpawn() == null) {
+        if (arena.storedSpectatorSpawn() == null) {
 
             missing.add("setspectator");
 
         }
 
-        if (arena.spawns().size() < 2) {
+        if (arena.capacity() < 2) {
 
             missing.add("addspawn (at least 2)");
 

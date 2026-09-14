@@ -10,7 +10,6 @@
   </module>
 
   <module name="TreeWalker">
-    <module name="FinalLocalVariable"/>
     <module name="AvoidStarImport"/>
     <module name="Indentation">
       <property name="severity" value="ignore"/>

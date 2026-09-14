@@ -108,10 +108,20 @@ public final class ArenaSession {
 
     }
 
+    // Every refusal is explained to the player here or in ArenaManager.enter, so a
+    // caller only needs the boolean.
     public boolean join(Player player) {
 
-        if (!this.canJoin() || this.manager.session(player) != null) {
+        if (this.manager.session(player) != null) {
 
+            Messages.send(player, Messages.bad("You are already in a Spleef arena. Use /spleef leave first."));
+            return false;
+
+        }
+
+        if (!this.canJoin()) {
+
+            Messages.send(player, Messages.bad("That arena is unavailable, full, or already in progress."));
             return false;
 
         }
@@ -136,18 +146,29 @@ public final class ArenaSession {
         // with no sidebar for a second
         // after the other one has already been closed for them.
         this.manager.updateScoreboards(this);
+        // Fired once the session already lists the player, so a listener that asks the
+        // API or this session sees them as present.
+        this.manager.announceJoin(player, this, false);
         return true;
 
     }
 
     public boolean spectate(Player player) {
 
+        if (this.manager.session(player) != null) {
+
+            Messages.send(player, Messages.bad("You are already in a Spleef arena. Use /spleef leave first."));
+            return false;
+
+        }
+
         // Requiring somebody to already be there stops an idle arena being used as a
         // free spectator-mode pass.
         if (!this.arena.enabled() || !this.arena.isComplete() || this.state == ArenaState.ENDING || !this.isActive()
-                || this.manager.session(player) != null || !this.manager.isArenaRuntimeValid(this.arena))
+                || !this.manager.isArenaRuntimeValid(this.arena))
         {
 
+            Messages.send(player, Messages.bad("That arena cannot be spectated right now."));
             return false;
 
         }
@@ -167,6 +188,7 @@ public final class ArenaSession {
 
         this.spectators.add(player.getUniqueId());
         this.manager.updateScoreboards(this);
+        this.manager.announceJoin(player, this, true);
         return true;
 
     }
@@ -343,7 +365,11 @@ public final class ArenaSession {
         for (UUID playerId : this.players) {
 
             Player player = Bukkit.getPlayer(playerId);
-            if (player != null && !this.manager.startPlayer(player, this.arena, spawns.get(spawnIndex++))) {
+            // Spawns resolve against loaded worlds, so a spawn can be missing here even
+            // though capacity() counted it. Nobody is placed without one.
+            if (player != null && (spawnIndex >= spawns.size()
+                    || !this.manager.startPlayer(player, this.arena, spawns.get(spawnIndex++))))
+            {
 
                 unplaced.add(player);
 
