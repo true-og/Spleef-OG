@@ -3,7 +3,7 @@ main: net.trueog.spleefog.SpleefPlugin
 version: ${version}
 description: Classic and Bow Spleef in WorldGuard regions.
 author: TrueOG
-website: https://github.com/true-og/Spleef-OG
+website: https://git.trueog.net/trueog/Spleef-OG
 api-version: ${apiVersion}
 depend: [WorldGuard]
 softdepend: [GameModeInventories-OG, PlayerBounties-OG, EternalCombat-OG, BattleTracker, Scoreboard-OG, Spawn-OG, Essentials-OG, Essentials]
